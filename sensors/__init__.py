@@ -8,7 +8,7 @@ __all__ = [
     "close_spi",
     "get_distance_values",
     "get_light_value",
-    "get_line_values",
+    "getLineValues",
     "lightOn",
     "lightOff",
     "leftMotorForward",
