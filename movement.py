@@ -1,5 +1,5 @@
-#순수 모터 제어(이동) + 속도 제어 
-from .motor import (
+#순수 모터 제어(이동) + 속도 제어 /
+from .sensors.motor import (
     leftMotorForward,
     leftMotorBackward,
     rightMotorForward,
