@@ -1,4 +1,5 @@
 from gpiozero import DigitalInputDevice
+import time
 
 # Initialize digital input devices
 line = [
@@ -7,6 +8,16 @@ line = [
     DigitalInputDevice(23)
 ]
 
-def getLineValues():
+# while True:
+#     # Read all values
+#     value = [device.value for device in line]
+
+#     # Print values
+#     print(f"{value[0]} {value[1]} {value[2]}")
+#     time.sleep(1)
+
+
+
+def get_line_values():
     # Read all values
-    return [device.value for device in line]
+    value = [device.value for device in line]
