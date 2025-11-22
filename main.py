@@ -11,6 +11,8 @@ from sensors import *
 # Initialize SPI for sensors
 # -------------------------------
 init_spi()
+setup_loadcell()
+
 
 # -------------------------------
 # YOLOv8n Model
@@ -23,7 +25,7 @@ model.overrides['imgsz'] = 320
 # Target classes
 # -------------------------------
 TARGET_CLASSES = {47: "apple", 46: "banana", 49: "orange"}
-
+TRUCK_CLASS = {7: "truck"}
 # -------------------------------
 # Global State
 # -------------------------------
@@ -35,7 +37,7 @@ frame_idx = 0
 
 process = None
 
-
+line_values = []
 
 
 # ====================================================
@@ -196,56 +198,237 @@ def disable_tracking():
     stop()
 
 #카메라에서 얻은 객체 중심 x좌표를 오프셋으로 움직이는 함수
-def track_step(x_center: int | None,
-               frame_width: int = FRAME_WIDTH_DEFAULT):
-    if not _tracking_enabled:
-        return
+def track_step(target_class: str, is_going_to_lift: bool):
 
-    if x_center is None:
-        # 객체 못 봤으면 그냥 멈춰 있는 쪽이 안전
-        stop()
-        return
+    while True:
+        line_values = get_line_values()
 
-    center_x = frame_width // 2
-    error = x_center - center_x   # 음수: 왼쪽 / 양수: 오른쪽
+        # --- 트럭과 target_object를 찾기 ---
+        target_object = next((obj for obj in latest_centers if obj[0] == target_class), None)
+        truck_object  = next((obj for obj in latest_centers if obj[0] == TRUCK_CLASS), None)
 
-    # 객체 추적 모드일 때는 기본 속도 0.5 /movement.py의 _current_speed = 0.5로 세팅
-    # 현재는 값을 바꿔서 조절해야함
-    set_speed(0.5)
+        # ----------------------- CASE 1 : PICK MODE -----------------------
+        if is_going_to_lift:
+            if target_object is None:
+                turn_left(0.2, 0.5)
+                continue
+            
+            # 물체 찾았으면 그 객체의 중심을 기반으로 정렬
+            target_x = target_object[1]
 
-    if abs(error) <= DEAD_ZONE:
-        # 거의 가운데 → 직진
-        move_forward()
-    elif error < 0:
-        # 목표가 왼쪽에 있음 → 왼쪽으로 회전
-        turn_left()
+        # ----------------------- CASE 2 : PLACE MODE -----------------------
+        else:
+            # 목적지 조건: target_class + truck_class 모두 존재해야 함
+            if target_object is None or truck_object is None:
+                turn_left(0.2, 0.5)
+                continue
+            
+            # 두 객체의 x좌표가 충분히 가까워야 목적지로 인정
+            if abs(target_object[1] - truck_object[1]) > 50:
+                # 정렬 기준은 트럭 (목표는 트럭에 물체 놓기)
+                turn_left(0.2, 0.5)
+                continue
+            else:
+                target_x = truck_object[1]
+
+        # ----------------------- MOVEMENT CONTROL -----------------------
+
+        center_x = FRAME_WIDTH_DEFAULT // 2
+        error = target_x - center_x
+
+        set_speed(0.5)
+
+        # 얼추 중앙, 직진
+        if abs(error) <= DEAD_ZONE:
+            move_forward(0.5, 0.5)
+        # 물체가 더 왼쪽에 있음, 좌회전
+        elif error < 0:
+            turn_left(0.5, 0.5)
+        # 물체가 더 오른쪽에 있음, 우회전
+        else:
+            turn_right(0.5, 0.5)
+
+        # --------- EXIT CONDITION: line detected ---------
+        if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
+            break
+
+
+    # ----------------------- FINAL ACTION -----------------------
+    stop()
+
+    if is_going_to_lift:
+        attempt_lift()
     else:
-        # 목표가 오른쪽 → 오른쪽 회전
-        turn_right()
+        attempt_place()
+
+    
 
 # =========================================================
 # =====================타겟 트래킹 관련 END======================
 # =========================================================
 
+# =========================================================
+# =====================물체 들어올리기 관련 START======================
+# =========================================================
+
+def attempt_lift():
+    line_values = get_line_values()
+    # 물체의 바로 앞에 있는 가로 선을 인식할 때 까지 전진
+    while (line_values[0] == 1 and line_values[1] == 1 and line_values[2] == 1):
+        # 0 0 0: 지금 안보이니까 전진
+        if (line_values[0] == 0 and line_values[1] == 0 and line_values[2] == 0):
+            move_forward(0.1)
+            continue
+
+        # 1 0 0, 1 1 0: 왼쪽에 선이 있으니까 왼쪽으로 약간 회전
+        elif (line_values[0] == 1 and line_values[1] == 0 and line_values[2] == 0) or (line_values[0] == 1 and line_values[1] == 1 and line_values[2] == 0):
+            turn_left(0.1)
+            continue
+
+        # 0 0 1, 0 1 1: 오른쪽에 선이 있으니까 오른쪽으로 약간 회전
+        elif (line_values[0] == 0 and line_values[1] == 0 and line_values[2] == 1) or (line_values[0] == 0 and line_values[1] == 1 and line_values[2] == 1):
+            turn_right(0.1)
+            continue
+
+        # 0 1 0: 가운데 선이 있으니까 직진
+        elif (line_values[0] == 0 and line_values[1] == 1 and line_values[2] == 0):
+            move_forward(0.1)
+            continue
+
+        # 1 1 1: 선을 완전히 인식했으면 멈춤
+        elif (line_values[0] == 1 and line_values[1] == 1 and line_values[2] == 1):
+            # 이 시점에서는 아마 물체 바로 앞에 도달했을 것
+            stop()
+            break
+            
+    # 가운데 거리센서 값 읽어서 물체가 있는지 확인
+    distance_values = get_distance_values()
+    center_distance = distance_values[1]  # 가운데 센서
+
+    if center_distance < 4.0:  # 4cm 이내에 물체가 있다고 가정
+        # 특정 높이만큼 들기
+        # 물체가 있으면 일단 들기 조금 시도(모터를 짧게 작동)
+        # 모터 작동 코드 필요 (예: lift_motor_up(duration))
+
+        time.sleep(0.5)  # 잠시 기다림
+
+        lifted_successful = False
+        # TODO: 몇 초 동안 들어야 다 드는건지 확인하기
+        for i in range(10): # 최대 10번 반복 들기 시도(10번 시도하면 다 들었다고 가정)
+            lift_motor_up(1, 0.5)  # 속도 0.5로 들기
+            # 조금 들고 로드셀 값 읽기(한계 무게 초과인지를 계속 확인)
+            weight = read_weights()
+            total_weight = weight[0] + weight[1]
+            if total_weight >= 2000:  # 총 무게가 기준치 이하면 계속 들기
+                # TODO: 무게 수치 확인 필요
+                break
+        else:
+            lifted_successful = True
+
+        if (not lifted_successful):
+            # 한계 무게가 초과되었다면 다시 내리기
+            lift_motor_down(i, 0.5)  # 속도 0.5로 내리기
+        # 들었건 말건 여기서 할 일은 끝남
+
+        # 일단 후진해서 180도 돌고, lift_successful 플래그에 따라 다음 동작 실행
+        move_backward(1.0)  # 1초 후진
+        turn_right(2.0)    # TODO: 몇초 돌면 180도인지 확인하기, 2초 우회전 (대략 180도)
+
+        if (lifted_successful):
+            # 들기에 성공했으면 내려놓기 함수 호출
+            return True
+        elif(not lifted_successful):
+            # 들기에 실패했다면, 다음 함수를 실행하지 않고 종료. 다음 타겟 탐색으로 넘어감
+            return False
+
+        
+        # 끝까지 들면 들기 성공 플래그 셋
+        # 모터 작동 코드 필요 (예: lift_motor_up(full_duration))
+        time.sleep(1.0)  # 잠시 기다림
 
 
+def attempt_place():
+    line_values = get_line_values()
+    # 물체의 바로 앞에 있는 가로 선을 인식할 때 까지 전진
+    while (line_values[0] == 1 and line_values[1] == 1 and line_values[2] == 1):
+        # 0 0 0: 지금 안보이니까 전진
+        if (line_values[0] == 0 and line_values[1] == 0 and line_values[2] == 0):
+            move_forward(0.1)
+            continue
+
+        # 1 0 0, 1 1 0: 왼쪽에 선이 있으니까 왼쪽으로 약간 회전
+        elif (line_values[0] == 1 and line_values[1] == 0 and line_values[2] == 0) or (line_values[0] == 1 and line_values[1] == 1 and line_values[2] == 0):
+            turn_left(0.1, 0.5)
+            continue
+
+        # 0 0 1, 0 1 1: 오른쪽에 선이 있으니까 오른쪽으로 약간 회전
+        elif (line_values[0] == 0 and line_values[1] == 0 and line_values[2] == 1) or (line_values[0] == 0 and line_values[1] == 1 and line_values[2] == 1):
+            turn_right(0.1, 0.5)
+            continue
+
+        # 0 1 0: 가운데 선이 있으니까 직진
+        elif (line_values[0] == 0 and line_values[1] == 1 and line_values[2] == 0):
+            move_forward(0.1, 0.5)
+            continue
+
+        # 1 1 1: 선을 완전히 인식했으면 멈춤
+        elif (line_values[0] == 1 and line_values[1] == 1 and line_values[2] == 1):
+            # 이 시점에서는 아마 물체 바로 앞에 도달했을 것
+            stop()
+            break
+    
+    # 물체 놓을 곳 바로 앞에 왔으니까, 내려놓기
+    lift_motor_down(10, 0.5)
+
+    move_backward(1.0)  # 1초 후진
+    turn_right(2.0)    # TODO: 몇초 돌면 180도인지 확인하기, 2초 우회전 (대략 180도)
+
+
+
+# =========================================================
+# =====================물체 들어올리기 관련 END======================
+# =========================================================
 
 
 # -------------------------------
 # Main Loop
 # -------------------------------
 if __name__ == "__main__":
+    # 카메라 인식 쓰레드 시작
     start_camera_process(0)
-
     t = threading.Thread(target=read_frames, daemon=True)
     t.start()
 
-    while not exit_flag:
-        with latest_centers_lock:
-            if latest_centers:
-                print("Latest detection:", latest_centers)
+    # 여기서부터 모든 로직 구현을 하자!
+    # 시작: 목표 설정부터(사과 -> 바나나 -> 오렌지) 순으로 처리할거임
+    main_target = TARGET_CLASSES[47]  # 47: apple, 46: banana, 49: orange
 
-        time.sleep(0.1)
+    # 객체 찾기
+    # TODO: 객체 찾는 함수 구현, 사과와 차 모양이 동시에 있으면 그 곳이 시작점
+
+    # 탐지 후 프레임 내에 찾는게 없으면 왼쪽으로 회전
+    is_going_to_lift = True
+    lifting_state = track_step(main_target, is_going_to_lift)
+    
+    if (lifting_state):
+        # 들어올리기 성공, 물체 놓으러 가기
+        is_going_to_lift = False
+        track_step(main_target, is_going_to_lift)
+    else:
+        is_going_to_lift = True
+        # 들어올리기 실패, 다음 타겟으로 넘어가기
+        pass
+
+    # 모두 끝났다면 다음 타겟으로 넘어가기
+    is_going_to_lift =True
+
+    if (main_target == TARGET_CLASSES[47]):  # 사과 끝났으면
+        main_target = TARGET_CLASSES[46]  # 바나나
+    elif (main_target == TARGET_CLASSES[46]):  # 바나나 끝났으면
+        main_target = TARGET_CLASSES[49]  # 오렌지
+    elif (main_target == TARGET_CLASSES[49]):  # 오렌지 끝났으면
+        main_target = TARGET_CLASSES[47]  # 사과
+    # 무한 반복
 
     if process:
         process.terminate()
