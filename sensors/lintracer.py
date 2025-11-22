@@ -7,6 +7,6 @@ line = [
     DigitalInputDevice(23)
 ]
 
-def getLineValues():
+def get_line_values():
     # Read all values
     return [device.value for device in line]
