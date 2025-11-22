@@ -34,3 +34,24 @@ def rightMotorBackward(speed):
     outputs[2].off()   # B1
     outputs[3].on()    # B2
     ENB.value = speed
+
+#양쪽 모터 모두 정지/ 부드러운 정지
+def stop_all():
+    # PWM 0으로
+    ENA.value = 0.0
+    ENB.value = 0.0
+    # 방향핀도 다 LOW로
+    for o in outputs:
+        o.off()
+#브레이크 / 강한 제동
+def brake_all():
+    ENA.value = 1.0
+    ENB.value = 1.0
+
+    # 왼쪽 모터: 두 입력 LOW
+    outputs[0].off()    # A1
+    outputs[1].off()    # A2
+
+    # 오른쪽 모터: 두 입력 LOW
+    outputs[2].off()    # B1
+    outputs[3].off()    # B2
