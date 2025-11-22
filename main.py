@@ -1,0 +1,157 @@
+import cv2
+import subprocess
+import shlex
+import numpy as np
+import threading
+import socket
+import time
+from ultralytics import YOLO
+
+from sensors import *
+
+# -------------------------------
+# Initialize SPI for sensors
+# -------------------------------
+init_spi()
+
+# -------------------------------
+# YOLOv8n Model
+# -------------------------------
+model = YOLO('yolov8n.pt')  # Load pretrained YOLOv8n model
+model.conf = 0.4
+model.overrides['imgsz'] = 320
+
+# -------------------------------
+# Target classes
+# -------------------------------
+TARGET_CLASSES = {47: "apple", 46: "banana", 49: "orange"}
+
+# -------------------------------
+# Global variables
+# -------------------------------
+buffer = bytearray()
+camera_lock = threading.Lock()
+buffer_lock = threading.Lock()
+
+frame_buffer = []
+buffer_ready = threading.Event()
+
+process = None
+frame_idx = 0
+process_every_n_frames = 15
+
+MAX_BUFFER_SIZE = 500_000
+is_buffering = False
+exit_flag = False
+
+# -------------------------------
+# Latest centers (thread-safe)
+# -------------------------------
+latest_centers = []  # [(name, x_center, y_center)]
+latest_centers_lock = threading.Lock()
+
+
+# -------------------------------
+# Start camera process
+# -------------------------------
+def start_camera_process(camera_index):
+    global process
+    cmd = f'libcamera-vid --inline --vflip --nopreview -t 0 --codec mjpeg ' \
+          f'--width 320 --height 320 --framerate 30 -o - --camera {camera_index}'
+    process = subprocess.Popen(
+        shlex.split(cmd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL
+    )
+
+
+# -------------------------------
+# Detect objects using YOLOv8
+# -------------------------------
+def detect_object(image):
+    results = model(image, classes=list(TARGET_CLASSES.keys()))
+    boxes = results[0].boxes
+
+    centers = []
+
+    for box in boxes:
+        cls_id = int(box.cls[0])
+        x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+        x_center = int((x1 + x2) / 2)
+        y_center = int((y1 + y2) / 2)
+
+        centers.append((TARGET_CLASSES[cls_id], x_center, y_center))
+
+    # Update global shared data
+    with latest_centers_lock:
+        global latest_centers
+        latest_centers = centers[:]
+
+    return centers  # Only return detection results, no visualization
+
+
+# -------------------------------
+# Read frames from camera
+# -------------------------------
+def read_frames():
+    global buffer, frame_idx, exit_flag
+
+    while not exit_flag:
+        with camera_lock:
+            if process is None:
+                continue
+
+            try:
+                chunk = process.stdout.read(4096)
+            except Exception:
+                continue
+
+            if not chunk:
+                continue
+
+            buffer.extend(chunk)
+
+            if len(buffer) > MAX_BUFFER_SIZE:
+                buffer = buffer[-MAX_BUFFER_SIZE:]
+
+        a = buffer.find(b'\xff\xd8')
+        b = buffer.find(b'\xff\xd9')
+
+        if a != -1 and b != -1 and b > a:
+            jpg = buffer[a:b + 2]
+            del buffer[:b + 2]
+
+            image = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+            if image is None:
+                continue
+
+            frame_idx += 1
+
+            if frame_idx % process_every_n_frames == 0:
+                detect_object(image)
+
+            if is_buffering:
+                with buffer_lock:
+                    frame_buffer.append(image)
+                    buffer_ready.set()
+
+
+# -------------------------------
+# Main execution
+# -------------------------------
+if __name__ == "__main__":
+    start_camera_process(0)
+
+    frame_reader_thread = threading.Thread(target=read_frames, daemon=True)
+    frame_reader_thread.start()
+
+    while not exit_flag:
+        with latest_centers_lock:
+            if latest_centers:
+                print("Latest detection:", latest_centers)
+
+        time.sleep(0.1)
+
+    if process:
+        process.terminate()
