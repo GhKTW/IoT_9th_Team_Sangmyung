@@ -3,10 +3,8 @@ import subprocess
 import shlex
 import numpy as np
 import threading
-import socket
 import time
 from ultralytics import YOLO
-
 from sensors import *
 
 # -------------------------------
@@ -17,7 +15,7 @@ init_spi()
 # -------------------------------
 # YOLOv8n Model
 # -------------------------------
-model = YOLO('yolov8n.pt')  # Load pretrained YOLOv8n model
+model = YOLO('yolov8n.pt')
 model.conf = 0.4
 model.overrides['imgsz'] = 320
 
@@ -27,32 +25,19 @@ model.overrides['imgsz'] = 320
 TARGET_CLASSES = {47: "apple", 46: "banana", 49: "orange"}
 
 # -------------------------------
-# Global variables
+# Global State
 # -------------------------------
-buffer = bytearray()
-camera_lock = threading.Lock()
-buffer_lock = threading.Lock()
-
-frame_buffer = []
-buffer_ready = threading.Event()
+exit_flag = False
+latest_centers = []
+latest_centers_lock = threading.Lock()
+process_every_n_frames = 15
+frame_idx = 0
 
 process = None
-frame_idx = 0
-process_every_n_frames = 15
-
-MAX_BUFFER_SIZE = 500_000
-is_buffering = False
-exit_flag = False
-
-# -------------------------------
-# Latest centers (thread-safe)
-# -------------------------------
-latest_centers = []  # [(name, x_center, y_center)]
-latest_centers_lock = threading.Lock()
 
 
 # -------------------------------
-# Start camera process
+# Start camera
 # -------------------------------
 def start_camera_process(camera_index):
     global process
@@ -66,7 +51,7 @@ def start_camera_process(camera_index):
 
 
 # -------------------------------
-# Detect objects using YOLOv8
+# YOLO 객체 검출 함수
 # -------------------------------
 def detect_object(image):
     results = model(image, classes=list(TARGET_CLASSES.keys()))
@@ -83,46 +68,37 @@ def detect_object(image):
 
         centers.append((TARGET_CLASSES[cls_id], x_center, y_center))
 
-    # Update global shared data
+    # 최신값 갱신
     with latest_centers_lock:
         global latest_centers
         latest_centers = centers[:]
 
-    return centers  # Only return detection results, no visualization
+    return centers
 
 
 # -------------------------------
-# Read frames from camera
+# 프레임 읽기 쓰레드
 # -------------------------------
 def read_frames():
-    global buffer, frame_idx, exit_flag
+    global frame_idx, exit_flag
 
     while not exit_flag:
-        with camera_lock:
-            if process is None:
-                continue
+        if process is None:
+            continue
 
-            try:
-                chunk = process.stdout.read(4096)
-            except Exception:
-                continue
+        chunk = process.stdout.read(4096)
 
-            if not chunk:
-                continue
+        if not chunk:
+            continue
 
-            buffer.extend(chunk)
+        # 단일 프레임 인식용 MJPEG 찾기
+        start = chunk.find(b'\xff\xd8')
+        end   = chunk.find(b'\xff\xd9')
 
-            if len(buffer) > MAX_BUFFER_SIZE:
-                buffer = buffer[-MAX_BUFFER_SIZE:]
-
-        a = buffer.find(b'\xff\xd8')
-        b = buffer.find(b'\xff\xd9')
-
-        if a != -1 and b != -1 and b > a:
-            jpg = buffer[a:b + 2]
-            del buffer[:b + 2]
-
+        if start != -1 and end != -1 and end > start:
+            jpg = chunk[start:end + 2]
             image = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+
             if image is None:
                 continue
 
@@ -131,20 +107,15 @@ def read_frames():
             if frame_idx % process_every_n_frames == 0:
                 detect_object(image)
 
-            if is_buffering:
-                with buffer_lock:
-                    frame_buffer.append(image)
-                    buffer_ready.set()
-
 
 # -------------------------------
-# Main execution
+# Main Loop
 # -------------------------------
 if __name__ == "__main__":
     start_camera_process(0)
 
-    frame_reader_thread = threading.Thread(target=read_frames, daemon=True)
-    frame_reader_thread.start()
+    t = threading.Thread(target=read_frames, daemon=True)
+    t.start()
 
     while not exit_flag:
         with latest_centers_lock:
