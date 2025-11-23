@@ -10,14 +10,22 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/sensor")
 public class SensorController {
 
-    // 최신 상태를 저장할 메모리 공간 (DB 대신 사용)
-    private SensorRequestDTO latestData = new SensorRequestDTO(0, 0, "NONE", "WAITING");
+
+    private SensorRequestDTO latestData = new SensorRequestDTO(
+            0.0,   // distance
+            0.0,   // lightLevel
+            0.0,   // weight
+            false, // isOverloaded
+            false, // isLightOn
+            "NONE",
+            "WAITING"
+    );
 
     @Operation(summary = "센서 데이터 수신 (From Pi)", description = "라즈베리파이에서 보낸 데이터를 받아서 갱신합니다.")
     @PostMapping("/data")
     public String receiveSensorData(@RequestBody SensorRequestDTO requestDTO) {
-        this.latestData = requestDTO; // 최신 데이터로 덮어쓰기
-        System.out.println("UPDATE: " + requestDTO.status() + " / Light: " + requestDTO.lightLevel());
+        this.latestData = requestDTO;
+        System.out.println("UPDATE: " + requestDTO.status() + " / Object: " + requestDTO.detectedObject());
         return "OK";
     }
 
