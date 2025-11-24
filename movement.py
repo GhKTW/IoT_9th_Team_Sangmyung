@@ -1,12 +1,5 @@
 #순수 모터 제어(이동) + 속도 제어 /
-from .sensors.motor import (
-    leftMotorForward,
-    leftMotorBackward,
-    rightMotorForward,
-    rightMotorBackward,
-    stop_all,
-    brake_all
-)
+from sensors import *
 import time
 
 DEFAULT_SPEED = 0.6

@@ -37,3 +37,5 @@ out/
 .vscode/*.lock
 *.bin
 dashboard/HELP.md
+=======
+venv/
