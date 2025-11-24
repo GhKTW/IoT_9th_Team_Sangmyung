@@ -123,10 +123,13 @@ def start_camera_process(camera_index):
 # YOLO 객체 검출 함수
 # -------------------------------
 def detect_object(image):
+    print("here")
     results = model(image, classes=list(TARGET_CLASSES.keys()))
+    print("here")
     boxes = results[0].boxes
 
     centers = []
+    print("here")
 
     for box in boxes:
         cls_id = int(box.cls[0])
@@ -141,6 +144,7 @@ def detect_object(image):
     with latest_centers_lock:
         global latest_centers
         latest_centers = centers[:]
+        print("here")
 
     return centers
 
@@ -149,6 +153,7 @@ def detect_object(image):
 # 프레임 읽기 쓰레드
 # -------------------------------
 def read_frames():
+    
     global frame_idx, exit_flag
 
     while not exit_flag:
@@ -165,6 +170,7 @@ def read_frames():
         end   = chunk.find(b'\xff\xd9')
 
         if start != -1 and end != -1 and end > start:
+            print("here1")
             jpg = chunk[start:end + 2]
             image = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
 
@@ -211,6 +217,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
         if is_going_to_lift:
             if target_object is None:
                 turn_left(0.2, 0.5)
+                time.sleep(0.2)
                 continue
             
             # 물체 찾았으면 그 객체의 중심을 기반으로 정렬
@@ -221,12 +228,14 @@ def track_step(target_class: str, is_going_to_lift: bool):
             # 목적지 조건: target_class + truck_class 모두 존재해야 함
             if target_object is None or truck_object is None:
                 turn_left(0.2, 0.5)
+                time.sleep(0.2)
                 continue
             
             # 두 객체의 x좌표가 충분히 가까워야 목적지로 인정
             if abs(target_object[1] - truck_object[1]) > 50:
                 # 정렬 기준은 트럭 (목표는 트럭에 물체 놓기)
                 turn_left(0.2, 0.5)
+                time.sleep(0.2)
                 continue
             else:
                 target_x = truck_object[1]

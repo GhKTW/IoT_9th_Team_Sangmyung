@@ -3,13 +3,13 @@ from movement import *
 
 # lift_motor_up(1.6, 0.4)
 
-# lift_motor_down(0.2, 0.4)
+lift_motor_down(0.2, 0.4)
 
 # move_forward(0.4, 0.4)
 
 # turn_left(0.4, 0.5)
 
-turn_right(2.18, 0.5)
+# turn_right(2.18, 0.5)
 # setup_loadcell()
 
 def lift():
