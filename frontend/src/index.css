@@ -11,3 +11,14 @@
     @apply m-0 bg-gray-200;
   }
 }
+
+/* Tailwind 기본 설정 아래에 추가 */
+
+@keyframes progress {
+  0% { width: 0%; opacity: 0.5; }
+  100% { width: 100%; opacity: 1; }
+}
+
+.animate-progress {
+  animation: progress 2s infinite ease-in-out;
+}
