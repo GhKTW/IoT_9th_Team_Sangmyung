@@ -24,7 +24,7 @@ model.overrides['imgsz'] = 320
 # -------------------------------
 # Target classes
 # -------------------------------
-TARGET_CLASSES = {47: "apple", 46: "banana", 49: "orange"}
+TARGET_CLASSES = {47: "apple", 46: "banana", 49: "orange", 7: "truck"}
 
 # -------------------------------
 # Global variables
@@ -60,7 +60,7 @@ latest_centers_lock = threading.Lock()
 # -------------------------------
 def start_camera_process(camera_index):
     global process
-    cmd = f'libcamera-vid --inline --vflip --nopreview -t 0 --codec mjpeg ' \
+    cmd = f'libcamera-vid --inline --vflip --hflip --nopreview -t 0 --codec mjpeg ' \
           f'--width 320 --height 320 --framerate 30 -o - --camera {camera_index}'
     process = subprocess.Popen(
         shlex.split(cmd),
