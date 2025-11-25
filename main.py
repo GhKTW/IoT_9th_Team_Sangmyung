@@ -19,8 +19,8 @@ setup_loadcell()
 # -------------------------------
 model = YOLO('yolov8n.pt')
 model.conf = 0.4
-model.overrides['imgsz'] = 320
-
+model.overrides['imgsz'] = 320      # 화면 크기 320
+model.overrides['verbose'] = False  # 디버그 출력 해제
 # -------------------------------
 # Target classes
 # -------------------------------
@@ -123,13 +123,10 @@ def start_camera_process(camera_index):
 # YOLO 객체 검출 함수
 # -------------------------------
 def detect_object(image):
-    print("here")
     results = model(image, classes=list(TARGET_CLASSES.keys()))
-    print("here")
     boxes = results[0].boxes
 
     centers = []
-    print("here")
 
     for box in boxes:
         cls_id = int(box.cls[0])
@@ -144,8 +141,7 @@ def detect_object(image):
     with latest_centers_lock:
         global latest_centers
         latest_centers = centers[:]
-        print("here")
-
+        print(latest_centers)
     return centers
 
 
@@ -153,9 +149,10 @@ def detect_object(image):
 # 프레임 읽기 쓰레드
 # -------------------------------
 def read_frames():
-    
     global frame_idx, exit_flag
-
+    
+    buffer = b''  # 버퍼 추가
+    
     while not exit_flag:
         if process is None:
             continue
@@ -165,23 +162,32 @@ def read_frames():
         if not chunk:
             continue
 
-        # 단일 프레임 인식용 MJPEG 찾기
-        start = chunk.find(b'\xff\xd8')
-        end   = chunk.find(b'\xff\xd9')
+        buffer += chunk  # 버퍼에 누적
+        
+        # JPEG 시작과 끝 마커 찾기
+        while True:
+            start = buffer.find(b'\xff\xd8')
+            end = buffer.find(b'\xff\xd9')
 
-        if start != -1 and end != -1 and end > start:
-            print("here1")
-            jpg = chunk[start:end + 2]
-            image = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+            if start != -1 and end != -1 and end > start:
+                jpg = buffer[start:end + 2]
+                buffer = buffer[end + 2:]  # 처리된 부분 제거
+                
+                image = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
 
-            if image is None:
-                continue
+                if image is not None:
+                    frame_idx += 1
 
-            frame_idx += 1
-
-            if frame_idx % process_every_n_frames == 0:
-                detect_object(image)
-
+                    if frame_idx % process_every_n_frames == 0:
+                        detect_object(image)
+            else:
+                # 완전한 프레임이 없으면 더 읽기
+                break
+        
+        # 버퍼가 너무 커지는 것 방지 (10MB 이상이면 초기화)
+        if len(buffer) > 10 * 1024 * 1024:
+            buffer = b''
+            
 # =========================================================
 # =====================타겟 트래킹 관련 START======================
 # =========================================================
@@ -205,7 +211,7 @@ def disable_tracking():
 
 #카메라에서 얻은 객체 중심 x좌표를 오프셋으로 움직이는 함수
 def track_step(target_class: str, is_going_to_lift: bool):
-
+    print("물건 가지러 / 놓으러 가기 시작")
     while True:
         line_values = get_line_values()
 
@@ -218,6 +224,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
             if target_object is None:
                 turn_left(0.2, 0.5)
                 time.sleep(0.2)
+                print("들기 모드, 객체 탐지 실패")
                 continue
             
             # 물체 찾았으면 그 객체의 중심을 기반으로 정렬
@@ -229,6 +236,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
             if target_object is None or truck_object is None:
                 turn_left(0.2, 0.5)
                 time.sleep(0.2)
+                print("놓기 모드, 객체 탐지 실패1")
                 continue
             
             # 두 객체의 x좌표가 충분히 가까워야 목적지로 인정
@@ -236,9 +244,11 @@ def track_step(target_class: str, is_going_to_lift: bool):
                 # 정렬 기준은 트럭 (목표는 트럭에 물체 놓기)
                 turn_left(0.2, 0.5)
                 time.sleep(0.2)
+                print("놓기 모드, 객체 탐지 실패2")
                 continue
             else:
                 target_x = truck_object[1]
+                print("객체 탐지 성공: " + target_x)
 
         # ----------------------- MOVEMENT CONTROL -----------------------
 
@@ -249,16 +259,19 @@ def track_step(target_class: str, is_going_to_lift: bool):
 
         # 얼추 중앙, 직진
         if abs(error) <= DEAD_ZONE:
+            print("찾아가는중... 전진")
             move_forward(0.5, 0.5)
         # 물체가 더 왼쪽에 있음, 좌회전
         elif error < 0:
-            turn_left(0.5, 0.5)
+            print("찾아가는중... 우회전")
+            turn_right(0.2, 0.5)
         # 물체가 더 오른쪽에 있음, 우회전
         else:
-            turn_right(0.5, 0.5)
+            turn_left(0.2, 0.5)
 
         # --------- EXIT CONDITION: line detected ---------
         if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
+            print("라인 검출, 목적지 도착")
             break
 
 
@@ -266,9 +279,14 @@ def track_step(target_class: str, is_going_to_lift: bool):
     stop()
 
     if is_going_to_lift:
-        attempt_lift()
+        print("물건 들기 시도")
+        success_lifting = attempt_lift()
+        return success_lifting
+        
     else:
-        attempt_place()
+        print("물건 놓기 시도")
+        success_placing = attempt_place()
+        return success_placing
 
     
 
@@ -281,9 +299,11 @@ def track_step(target_class: str, is_going_to_lift: bool):
 # =========================================================
 
 def attempt_lift():
+    print("물건 들기 시도 시작")
     line_values = get_line_values()
     # 물체의 바로 앞에 있는 가로 선을 인식할 때 까지 전진
     while (line_values[0] == 1 and line_values[1] == 1 and line_values[2] == 1):
+        print("목적지로 이동")
         # 0 0 0: 지금 안보이니까 전진
         if (line_values[0] == 0 and line_values[1] == 0 and line_values[2] == 0):
             move_forward(0.1)
@@ -307,51 +327,60 @@ def attempt_lift():
         # 1 1 1: 선을 완전히 인식했으면 멈춤
         elif (line_values[0] == 1 and line_values[1] == 1 and line_values[2] == 1):
             # 이 시점에서는 아마 물체 바로 앞에 도달했을 것
+            print("물건 앞 도착")
             stop()
             break
             
     # 가운데 거리센서 값 읽어서 물체가 있는지 확인
-    distance_values = get_distance_values()
-    center_distance = distance_values[1]  # 가운데 센서
+    center_distance = get_distance_values()[1]  # 가운데 센서
 
-    if center_distance < 4.0:  # 4cm 이내에 물체가 있다고 가정
-        # 특정 높이만큼 들기
-        # 물체가 있으면 일단 들기 조금 시도(모터를 짧게 작동)
-        # 모터 작동 코드 필요 (예: lift_motor_up(duration))
+    # 물건이 바로 앞에 없는 경우 추가
+    ready_to_lift = False
+    if center_distance > 10:  # 10cm 이내에 물체가 없으면
+        for i in range(10):
+            center_distance = get_distance_values()[1]
+            if (center_distance <= 10):
+                print("물건 들기 준비 완료")
+                ready_to_lift = True
+                break
+            else:
+                ready_to_lift = False
+                move_forward(0.2, 0.5)
 
-        time.sleep(0.5)  # 잠시 기다림
-
-        lifted_successful = False
-        for i in range(15): # 최대 10번 반복 들기 시도(10번 시도하면 다 들었다고 가정)
+    lifted_successful = False
+    if ready_to_lift:
+    # 특정 높이만큼 들기
+        idx = 0
+        for idx in range(15): # 최대 10번 반복 들기 시도(10번 시도하면 다 들었다고 가정)
             lift_motor_up(0.1, 0.5)  # 속도 0.5로 들기
             # 조금 들고 로드셀 값 읽기(한계 무게 초과인지를 계속 확인)
             weight = read_weights()
             total_weight = weight[0] + weight[1]
             if total_weight >= 55000:  # 총 무게가 기준치 이하면 계속 들기
+                print("물건이 너무 무거움, 포기")
                 break
         else:
+            print("물건 들기 성공")
             lifted_successful = True
 
         if (not lifted_successful):
             # 한계 무게가 초과되었다면 다시 내리기
-            lift_motor_down(i, 0.5)  # 속도 0.5로 내리기
+            lift_motor_down(idx, 0.5)  # 속도 0.5로 내리기
         # 들었건 말건 여기서 할 일은 끝남
 
-        # 일단 후진해서 180도 돌고, lift_successful 플래그에 따라 다음 동작 실행
-        move_backward(1.0)  # 1초 후진
-        turn_right(2.18)    # 2.18초 우회전 (대략 180도)
+    # 일단 후진해서 180도 돌고, lift_successful 플래그에 따라 다음 동작 실행
+    print("들기 시도 종료, 뒤로 가서 180도 회전")
+    move_backward(1.0)  # 1초 후진
+    turn_right(2.18)    # 2.18초 우회전 (대략 180도)
 
-        if (lifted_successful):
-            # 들기에 성공했으면 내려놓기 함수 호출
-            return True
-        elif(not lifted_successful):
-            # 들기에 실패했다면, 다음 함수를 실행하지 않고 종료. 다음 타겟 탐색으로 넘어감
-            return False
-
-        
-        # 끝까지 들면 들기 성공 플래그 셋
-        # 모터 작동 코드 필요 (예: lift_motor_up(full_duration))
-        time.sleep(1.0)  # 잠시 기다림
+    if (lifted_successful):
+        # 들기에 성공했으면 내려놓기 함수 호출
+        print("물건 들기 성공, 들기 함수 종료")
+        return True
+    elif(not lifted_successful):
+        # 들기에 실패했다면, 다음 함수를 실행하지 않고 종료. 다음 타겟 탐색으로 넘어감
+        print("물건 들기 실패, 들기 함수 종료")
+        return False
 
 
 def attempt_place():
@@ -389,6 +418,7 @@ def attempt_place():
 
     move_backward(1.0)  # 1초 후진
     turn_right(2.18)    # 2.18초 우회전 (대략 180도)
+    return True
 
 
 
@@ -408,34 +438,36 @@ if __name__ == "__main__":
 
     # 여기서부터 모든 로직 구현을 하자!
     # 시작: 목표 설정부터(사과 -> 바나나 -> 오렌지) 순으로 처리할거임
-    main_target = TARGET_CLASSES[47]  # 47: apple, 46: banana, 49: orange
+    target_order = [47, 46, 49]  # apple, banana, orange
+    current_target_idx = 0
 
     # 객체 찾기
     # TODO: 객체 찾는 함수 구현, 사과와 차 모양이 동시에 있으면 그 곳이 시작점
 
     # 탐지 후 프레임 내에 찾는게 없으면 왼쪽으로 회전
-    is_going_to_lift = True
-    lifting_state = track_step(main_target, is_going_to_lift)
-    
-    if (lifting_state):
-        # 들어올리기 성공, 물체 놓으러 가기
-        is_going_to_lift = False
-        track_step(main_target, is_going_to_lift)
-    else:
-        is_going_to_lift = True
-        # 들어올리기 실패, 다음 타겟으로 넘어가기
-        pass
-
-    # 모두 끝났다면 다음 타겟으로 넘어가기
-    is_going_to_lift =True
-
-    if (main_target == TARGET_CLASSES[47]):  # 사과 끝났으면
-        main_target = TARGET_CLASSES[46]  # 바나나
-    elif (main_target == TARGET_CLASSES[46]):  # 바나나 끝났으면
-        main_target = TARGET_CLASSES[49]  # 오렌지
-    elif (main_target == TARGET_CLASSES[49]):  # 오렌지 끝났으면
-        main_target = TARGET_CLASSES[47]  # 사과
-    # 무한 반복
-
-    if process:
-        process.terminate()
+    try:
+        while not exit_flag:  # 무한 반복
+            target_id = target_order[current_target_idx]
+            main_target = TARGET_CLASSES[target_id]
+            print(f"Current target: {main_target}")
+            
+            # PICK (들기)
+            is_going_to_lift = True
+            lifting_state = track_step(main_target, is_going_to_lift)
+            
+            print(f"놓기 여부 {lifting_state}")
+            # PLACE (놓기) - 들기 성공했을 때만
+            if lifting_state == 1:
+                is_going_to_lift = False
+                track_step(main_target, is_going_to_lift)
+            
+            # 다음 타겟으로 이동
+            current_target_idx = (current_target_idx + 1) % len(target_order)
+            
+    except KeyboardInterrupt:
+        print("프로그램 종료")
+        exit_flag = True
+    finally:
+        stop()
+        if process:
+            process.terminate()
