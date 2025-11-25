@@ -61,7 +61,7 @@ latest_centers_lock = threading.Lock()
 def start_camera_process(camera_index):
     global process
     cmd = f'libcamera-vid --inline --vflip --hflip --nopreview -t 0 --codec mjpeg ' \
-          f'--width 320 --height 320 --framerate 30 -o - --camera {camera_index}'
+          f'--width 640 --height 640 --framerate 30 -o - --camera {camera_index}'
     process = subprocess.Popen(
         shlex.split(cmd),
         stdout=subprocess.PIPE,

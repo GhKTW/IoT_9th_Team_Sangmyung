@@ -9,7 +9,7 @@ from movement import *
 
 # turn_left(0.4, 0.5)
 
-turn_right(2.18, 0.5)
+# turn_right(2.18, 0.5)
 # setup_loadcell()
 
 def lift():
