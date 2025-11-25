@@ -18,22 +18,22 @@ class Config:
     """Central configuration class"""
     # Camera settings
     CAMERA_INDEX = 0
-    FRAME_WIDTH = 320
-    FRAME_HEIGHT = 320
+    FRAME_WIDTH = 640
+    FRAME_HEIGHT = 640
     FRAME_RATE = 30
     PROCESS_EVERY_N_FRAMES = 15
     
     # YOLO settings
     YOLO_MODEL = 'yolov8n.pt'
     YOLO_CONFIDENCE = 0.4
-    YOLO_IMG_SIZE = 320
+    YOLO_IMG_SIZE = 640
     
     # Movement settings
     DEFAULT_SPEED = 0.6
     TURN_SPEED_RATIO = 0.7
     
     # Tracking settings
-    DEAD_ZONE = 20  # pixels from center
+    DEAD_ZONE = 50  # pixels from center
     OBJECT_ALIGNMENT_THRESHOLD = 50  # pixels
     
     # Lifting settings
@@ -74,6 +74,13 @@ class DetectedObject:
     y_center: int
 
 
+@dataclass
+class DetectionResult:
+    """Represents detection result with sequence number"""
+    objects: List[DetectedObject]
+    sequence_num: int
+
+
 # ========================================
 # Global State Management
 # ========================================
@@ -83,20 +90,25 @@ class RobotState:
         self.exit_flag = False
         self.current_speed = Config.DEFAULT_SPEED
         self.tracking_enabled = True
-        self.latest_centers: List[DetectedObject] = []
-        self.centers_lock = threading.Lock()
+        self.latest_detection: Optional[DetectionResult] = None
+        self.detection_lock = threading.Lock()
         self.frame_idx = 0
+        self.detection_sequence = 0  # 검출 순서 카운터
         self.camera_process: Optional[subprocess.Popen] = None
     
-    def update_centers(self, centers: List[DetectedObject]):
-        """Thread-safe update of detected centers"""
-        with self.centers_lock:
-            self.latest_centers = centers[:]
+    def update_detection(self, objects: List[DetectedObject]):
+        """Thread-safe update of detected objects with sequence number"""
+        with self.detection_lock:
+            self.detection_sequence += 1
+            self.latest_detection = DetectionResult(
+                objects=objects[:],
+                sequence_num=self.detection_sequence
+            )
     
-    def get_centers(self) -> List[DetectedObject]:
-        """Thread-safe retrieval of detected centers"""
-        with self.centers_lock:
-            return self.latest_centers[:]
+    def get_detection(self) -> Optional[DetectionResult]:
+        """Thread-safe retrieval of latest detection"""
+        with self.detection_lock:
+            return self.latest_detection
 
 
 # Global state instance
@@ -110,6 +122,8 @@ def initialize_hardware():
     """Initialize all hardware components"""
     init_spi()
     setup_loadcell()
+    for _ in range(5):
+        weight = read_weights()
 
 
 # ========================================
@@ -210,9 +224,9 @@ class CameraManager:
         robot_state.frame_idx += 1
         
         if robot_state.frame_idx % Config.PROCESS_EVERY_N_FRAMES == 0:
-            centers = self.detector.detect(image)
-            robot_state.update_centers(centers)
-            print(f"Detected: {[(obj.class_name, obj.x_center) for obj in centers]}")
+            objects = self.detector.detect(image)
+            robot_state.update_detection(objects)
+            print(f"Detection #{robot_state.detection_sequence}: {[(obj.class_name, obj.x_center) for obj in objects]}")
 
 
 # ========================================
@@ -293,14 +307,19 @@ class LineFollower:
             # 0 0 0: No line detected / 0 1 0: Center only - move forward
             if (left == 0 and center == 0 and right == 0) or (left == 0 and center == 1 and right == 0):
                 movement.forward(0.1, 0.5)
+                time.sleep(0.3)
             
             # 1 0 0: Left sensor only / 1 1 0: Left and center - turn left
             elif (left == 1 and center == 0 and right == 0) or (left == 1 and center == 1 and right == 0):
                 movement.turn_left(0.1, 0.5)
+                time.sleep(0.3)
+                
             
             # 0 0 1: Right sensor only / 0 1 1: Center and right - turn right
             elif (left == 0 and center == 0 and right == 1) or (left == 0 and center == 1 and right == 1):
                 movement.turn_right(0.1, 0.5)
+                time.sleep(0.3)
+                
             
             # 1 1 1: All sensors detect line - arrived at target
             elif left == 1 and center == 1 and right == 1:
@@ -311,6 +330,7 @@ class LineFollower:
             # 1 0 1: Left and right (shouldn't happen normally, treat as forward)
             else:
                 movement.forward(0.1, 0.5)
+                time.sleep(0.3)
 
 
 # ========================================
@@ -321,6 +341,7 @@ class ObjectTracker:
     
     def __init__(self, movement: MovementController):
         self.movement = movement
+        self.last_processed_sequence = 0  # 마지막으로 처리한 검출 순서
     
     def track_to_target(self, target_class: str, is_pickup: bool) -> bool:
         """
@@ -335,32 +356,47 @@ class ObjectTracker:
         """
         print(f"{'Pickup' if is_pickup else 'Place'} mode started for {target_class}")
         
+        detected_once = False
+        
         while not robot_state.exit_flag:
-            centers = robot_state.get_centers()
+            detection = robot_state.get_detection()
             line_values = get_line_values()
+            
+            # 새로운 검출 결과가 없으면 대기
+            if detection is None or detection.sequence_num <= self.last_processed_sequence:
+                time.sleep(0.01)  # CPU 과부하 방지
+                continue
+            
+            # 새로운 검출 결과 처리
+            self.last_processed_sequence = detection.sequence_num
+            centers = detection.objects
             
             # Find target object
             target_obj = self._find_target(centers, target_class, is_pickup)
             
             if target_obj is None:
-                print("Target not found - searching...")
+                if detected_once:
+                    continue
+                print(f"Target not found (detection #{detection.sequence_num}) - searching...")
                 self.movement.turn_left(0.2, 0.5)
                 time.sleep(0.3)
                 continue
             
+            detected_once = True
+            
             # Calculate steering based on target position
             error = target_obj.x_center - (Config.FRAME_WIDTH // 2)
             
-            # Move towards target
+            # Move towards target (새 검출 결과에 대해서만 실행)
             if abs(error) <= Config.DEAD_ZONE:
-                print("Target centered - moving forward")
-                self.movement.forward(0.5, 0.5)
+                print(f"Target centered (detection #{detection.sequence_num}) - moving forward")
+                self.movement.forward(0.3, 0.5)
             elif error < 0:
-                print("Target on left - turning right")
-                self.movement.turn_right(0.2, 0.5)
+                print(f"Target on right (detection #{detection.sequence_num}) - turning right")
+                self.movement.turn_right(0.1, 0.5)
             else:
-                print("Target on right - turning left")
-                self.movement.turn_left(0.2, 0.5)
+                print(f"Target on left (detection #{detection.sequence_num}) - turning left")
+                self.movement.turn_left(0.1, 0.5)
             
             # Check if reached line (destination)
             if any(v == 1 for v in line_values):
@@ -436,7 +472,13 @@ class LiftingController:
         self.line_follower.follow_to_target(self.movement)
         
         # Lower object
-        lift_motor_down(Config.MAX_LIFT_ATTEMPTS, 0.5)
+        for i in range(20): 
+            lift_motor_down(0.1, 0.5)  # 속도 0.5로 들기
+            weight = read_weights()
+            total_weight = weight[0] + weight[1]
+            print(total_weight)
+            if total_weight <= 5000:  # 총 무게가 기준치 이하면 계속 들기
+                break
         print("Object placed")
         
         self._return_to_path()
