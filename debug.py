@@ -3,7 +3,7 @@ from movement import *
 
 # lift_motor_up(1.6, 0.4)
 
-lift_motor_down(0.2, 0.4)
+# lift_motor_down(0.2, 0.4)
 
 # move_forward(0.4, 0.4)
 
