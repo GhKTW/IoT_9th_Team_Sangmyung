@@ -1,6 +1,4 @@
 from time import sleep
-# 기존에 만들어둔 이동 모듈과 센서 모듈을 가져옵니다.
-# movement.py와 sensors 폴더가 같은 경로(혹은 하위)에 있어야 합니다.
 from movement import turn_left, turn_right, stop, move_backward
 from sensors.distanceAndLightlevel import get_distance_values
 
@@ -52,12 +50,13 @@ def check_and_avoid_obstacle():
         turn_left(AVOID_TIME, AVOID_SPEED)
         is_avoided = True
 
+    # y
     # 3. 전방(중앙) 장애물 감지 (이동 중일 때만)
-    # elif center_dist < 10.0 and center_dist > 0:
-    #     print("⚠️ 전방 막힘! 후진 후 회전")
-    #     move_backward(0.5, AVOID_SPEED)
-    #     turn_left(0.5, AVOID_SPEED)
-    #     is_avoided = True
+    elif center_dist < 10.0 and center_dist > 0:
+        print("⚠️ 전방 막힘! 후진 후 회전")
+        move_backward(0.5, AVOID_SPEED)
+        turn_left(0.5, AVOID_SPEED)
+        is_avoided = True
 
     if is_avoided:
         stop() # 회피 후 정지 상태로 만듦 (다음 명령 대기)

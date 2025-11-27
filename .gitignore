@@ -39,3 +39,6 @@ out/
 dashboard/HELP.md
 =======
 venv/
+__pycache__/
+*.pyc
+*.pt
