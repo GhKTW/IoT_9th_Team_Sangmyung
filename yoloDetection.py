@@ -24,7 +24,7 @@ model.overrides['imgsz'] = 320
 # -------------------------------
 # Target classes
 # -------------------------------
-TARGET_CLASSES = {47: "apple", 46: "banana", 49: "orange", 7: "truck"}
+TARGET_CLASSES = {47: "apple", 46: "banana", 50: "broccoli", 7: "truck"}
 
 # -------------------------------
 # Global variables

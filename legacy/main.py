@@ -37,9 +37,9 @@ class Config:
     OBJECT_ALIGNMENT_THRESHOLD = 50  # pixels
     
     # Lifting settings
-    MAX_LIFT_ATTEMPTS = 15
+    MAX_LIFT_ATTEMPTS = 30
     MAX_WEIGHT_THRESHOLD = 55000
-    DISTANCE_THRESHOLD = 10  # cm
+    DISTANCE_THRESHOLD =  8 # cm
     
     # Buffer settings
     MAX_BUFFER_SIZE = 10 * 1024 * 1024  # 10MB
@@ -49,7 +49,7 @@ class ObjectClass(Enum):
     """Target object classes"""
     APPLE = 47
     BANANA = 46
-    ORANGE = 49
+    BROCCOLI = 50
     TRUCK = 7
 
 
@@ -57,7 +57,7 @@ class ObjectClass(Enum):
 TARGET_CLASS_NAMES = {
     ObjectClass.APPLE.value: "apple",
     ObjectClass.BANANA.value: "banana",
-    ObjectClass.ORANGE.value: "orange",
+    ObjectClass.BROCCOLI.value: "broccoli",
     ObjectClass.TRUCK.value: "truck"
 }
 
@@ -303,34 +303,10 @@ class LineFollower:
         while True:
             line_values = get_line_values()
             left, center, right = line_values[0], line_values[1], line_values[2]
-            
-            # 0 0 0: No line detected / 0 1 0: Center only - move forward
-            if (left == 0 and center == 0 and right == 0) or (left == 0 and center == 1 and right == 0):
-                movement.forward(0.1, 0.5)
-                time.sleep(0.3)
-            
-            # 1 0 0: Left sensor only / 1 1 0: Left and center - turn left
-            elif (left == 1 and center == 0 and right == 0) or (left == 1 and center == 1 and right == 0):
-                movement.turn_left(0.1, 0.5)
-                time.sleep(0.3)
-                
-            
-            # 0 0 1: Right sensor only / 0 1 1: Center and right - turn right
-            elif (left == 0 and center == 0 and right == 1) or (left == 0 and center == 1 and right == 1):
-                movement.turn_right(0.1, 0.5)
-                time.sleep(0.3)
-                
-            
-            # 1 1 1: All sensors detect line - arrived at target
-            elif left == 1 and center == 1 and right == 1:
-                print("Line fully detected - arrived at target")
+
+            if (left == 1 or center == 1 or right == 1):
                 movement.stop()
                 return True
-            
-            # 1 0 1: Left and right (shouldn't happen normally, treat as forward)
-            else:
-                movement.forward(0.1, 0.5)
-                time.sleep(0.3)
 
 
 # ========================================
@@ -390,13 +366,13 @@ class ObjectTracker:
             # Move towards target (새 검출 결과에 대해서만 실행)
             if abs(error) <= Config.DEAD_ZONE:
                 print(f"Target centered (detection #{detection.sequence_num}) - moving forward")
-                self.movement.forward(0.3, 0.5)
+                self.movement.forward(0.1, 0.5)
             elif error < 0:
                 print(f"Target on right (detection #{detection.sequence_num}) - turning right")
-                self.movement.turn_right(0.1, 0.5)
+                self.movement.turn_right(0.05, 0.5)
             else:
                 print(f"Target on left (detection #{detection.sequence_num}) - turning left")
-                self.movement.turn_left(0.1, 0.5)
+                self.movement.turn_left(0.05, 0.5)
             
             # Check if reached line (destination)
             if any(v == 1 for v in line_values):
@@ -482,15 +458,17 @@ class LiftingController:
         print("Object placed")
         
         self._return_to_path()
+        self.movement.stop()
         return True
     
     def _is_object_in_range(self) -> bool:
         """Check if object is within pickup range"""
-        for _ in range(10):
+        for _ in range(20):
             center_distance = get_distance_values()[1]
             if center_distance <= Config.DISTANCE_THRESHOLD:
                 return True
-            self.movement.forward(0.2, 0.5)
+            self.movement.forward(0.05, 0.5)
+            time.sleep(0.2)
         return False
     
     def _lift_object(self) -> bool:
@@ -503,16 +481,17 @@ class LiftingController:
             
             if total_weight >= Config.MAX_WEIGHT_THRESHOLD:
                 print(f"Weight limit exceeded: {total_weight}")
-                lift_motor_down(iteration, 0.5)
+                self.attempt_place()
                 return False
         
         print("Lift successful")
+        self.movement.stop()
         return True
     
     def _return_to_path(self):
         """Return to path after pickup/place operation"""
         print("Returning to path")
-        self.movement.backward(1.0)
+        self.movement.backward(0.5, 0.5)
         self.movement.turn_right(2.18)  # ~180 degrees
 
 
@@ -550,7 +529,7 @@ class RobotController:
         target_sequence = [
             ObjectClass.APPLE,
             ObjectClass.BANANA,
-            ObjectClass.ORANGE
+            ObjectClass.BROCCOLI
         ]
         
         current_idx = 0

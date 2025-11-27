@@ -45,9 +45,12 @@ def stop_all():
     # PWM 0으로
     ENA.value = 0.0
     ENB.value = 0.0
+    ENA_lift = 0.0
     # 방향핀도 다 LOW로
     for o in outputs:
         o.off()
+    for x in outputs_lift:
+        x.off()
 #브레이크 / 강한 제동
 def brake_all():
     ENA.value = 1.0
