@@ -47,7 +47,7 @@ const LaneBoard: React.FC<Props> = ({ lanes, onLaneClick }) => {
                               : lane.status === 'moving'
                                   ? 'bg-sky-400'
                                   : lane.status === 'warning'
-                                      ? 'bg-orange-400'
+                                      ? 'bg-broccoli-400'
                                       : 'bg-transparent'
                       }
                 `}
