@@ -15,10 +15,11 @@ interface SensorData {
 
 // 프로세스 맵 컴포넌트: 적재장 -> 이동 -> 하역장 시각화
 const ProcessMap = ({ status, objectName }: { status: string; objectName: string }) => {
-    // 현재 물건이 무엇인지 (apple, banana, grape)
+    // 현재 물건이 무엇인지 (apple, banana, broccoli)
     const isApple = objectName.includes('apple') || objectName.includes('사과');
     const isBanana = objectName.includes('banana') || objectName.includes('바나나');
-    const isGrape = objectName.includes('grape') || objectName.includes('포도');
+    // Grape -> Orange 변경 -> Broccoli로 데이터 명칭 변경 반영
+    const isBroccoli = objectName.includes('broccoli') || objectName.includes('브로콜리');
 
     // 상태별 활성화 여부 판단
     // 1. 적재 중: LIFTING 상태일 때
@@ -46,7 +47,8 @@ const ProcessMap = ({ status, objectName }: { status: string; objectName: string
                         {/* 물건 아이콘들: 해당 물건을 들 때만 불이 켜짐 */}
                         <FruitIcon type="🍎" active={isLoading && isApple} label="사과" />
                         <FruitIcon type="🍌" active={isLoading && isBanana} label="바나나" />
-                        <FruitIcon type="🍇" active={isLoading && isGrape} label="포도" />
+                        {/* 포도 -> 오렌지 아이콘 변경 -> 브로콜리 아이콘 변경 */}
+                        <FruitIcon type="🥦" active={isLoading && isBroccoli} label="브로콜리" />
                     </div>
                 </div>
 
@@ -69,7 +71,8 @@ const ProcessMap = ({ status, objectName }: { status: string; objectName: string
                         {/* 물건 아이콘들: 하역할 때 불이 켜짐 */}
                         <FruitIcon type="🍎" active={isUnloading && isApple} label="사과" />
                         <FruitIcon type="🍌" active={isUnloading && isBanana} label="바나나" />
-                        <FruitIcon type="🍇" active={isUnloading && isGrape} label="포도" />
+                        {/* 포도 -> 오렌지 아이콘 변경 -> 브로콜리 아이콘 변경 */}
+                        <FruitIcon type="🥦" active={isUnloading && isBroccoli} label="브로콜리" />
                     </div>
                 </div>
 
@@ -87,7 +90,7 @@ const ProcessMap = ({ status, objectName }: { status: string; objectName: string
 };
 
 // 작은 과일 아이콘 컴포넌트
-const FruitIcon = ({ type, active}: { type: string, active: boolean, label: string }) => (
+const FruitIcon = ({ type, active, label}: { type: string, active: boolean, label: string }) => (
     <div className={`flex flex-col items-center transition-all duration-300 ${active ? 'opacity-100 scale-125' : 'opacity-20 grayscale'}`}>
         <span className={`text-3xl ${active ? 'drop-shadow-md' : ''}`}>{type}</span>
     </div>
@@ -150,7 +153,7 @@ function App() {
                     <ProcessMap status={data?.status || ''} objectName={currentObject} />
                 </div>
 
-                {/* 3. 화물 적재 현황 (요청하신 기능 유지) */}
+                {/* 3. 화물 적재 현황 */}
                 <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 flex flex-col justify-center">
                     <h2 className="text-xl font-bold mb-6 text-gray-800">📦 화물 적재 현황</h2>
                     <div className="flex justify-around items-center">
@@ -171,12 +174,12 @@ function App() {
                             <span className="mt-3 font-bold text-yellow-500 text-lg">바나나</span>
                         </div>
 
-                        {/* 포도 - 보라색 테두리와 그림자 효과 */}
-                        <div className={`flex flex-col items-center transition-all duration-500 ${currentObject.includes('grape') || currentObject.includes('포도') ? 'opacity-100 scale-110' : 'opacity-20 grayscale'}`}>
-                            <div className="w-24 h-24 rounded-full bg-purple-50 border-4 border-purple-400 flex items-center justify-center text-5xl shadow-xl">
-                                🍇
+                        {/* 포도(Grape) -> 오렌지(Orange) 변경 (주황색 테마) -> 브로콜리(Broccoli) 변경 (초록색 테마) */}
+                        <div className={`flex flex-col items-center transition-all duration-500 ${currentObject.includes('broccoli') || currentObject.includes('브로콜리') ? 'opacity-100 scale-110' : 'opacity-20 grayscale'}`}>
+                            <div className="w-24 h-24 rounded-full bg-green-50 border-4 border-green-400 flex items-center justify-center text-5xl shadow-xl">
+                                🥦
                             </div>
-                            <span className="mt-3 font-bold text-purple-500 text-lg">포도</span>
+                            <span className="mt-3 font-bold text-green-500 text-lg">브로콜리</span>
                         </div>
                     </div>
                 </div>

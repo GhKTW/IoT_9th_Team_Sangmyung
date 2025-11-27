@@ -7,8 +7,8 @@ import random
 # ==========================================
 SERVER_URL = "http://localhost:8080/api/sensor/data"
 
-# 과일 목록 (랜덤 선택용)
-FRUITS = ["apple", "banana", "grape"]
+# 과일 목록 (랜덤 선택용) - grape -> orange 변경 -> broccoli 변경
+FRUITS = ["apple", "banana", "broccoli"]
 
 def send_data(dist, light, weight, is_overloaded, light_on, obj, status):
     payload = {
