@@ -1,3 +1,5 @@
+// IoT_9th_Team_Sangmyung/frontend/src/App.tsx
+
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import WarningPanel from './components/WarningPanel';
@@ -6,7 +8,7 @@ import WarningPanel from './components/WarningPanel';
 interface SensorData {
     distance: number;
     lightLevel: number;
-    weight: number;
+    weight: number; // NOTE: 이 값은 0.0 ~ 100.0 (%) 사이의 백분율 값입니다.
     isOverloaded: boolean;
     isLightOn: boolean;
     detectedObject: string;
@@ -99,6 +101,7 @@ function App() {
     useEffect(() => {
         const fetchData = async () => {
             try {
+                // 실제 API 엔드포인트에서 데이터 통신
                 const response = await axios.get('http://localhost:8080/api/sensor/current');
                 setData(response.data);
             } catch (error) {
@@ -122,11 +125,20 @@ function App() {
         }
     };
 
+    // data.weight는 이제 kg이 아닌 백분율 (0.0 ~ 100.0)입니다.
     const warningMessage = data?.isOverloaded
-        ? `⚠️ 무게 초과 (${data.weight}kg)! 작업을 중단합니다.`
+        ? `⚠️ 무게 초과 (${data.weight.toFixed(1)}%)! 작업을 중단합니다.`
         : undefined;
 
     const currentObject = data?.detectedObject?.toLowerCase() || '';
+
+    // 백분율 값을 0~100 사이로 안전하게 제한
+    const weightPercentage = Math.min(Math.max(data?.weight || 0, 0), 100);
+    // 게이지 색상 결정: 80% (OVERLOAD_WARNING_THRESHOLD) 초과 시 빨간색
+    const gaugeColorClass = data?.isOverloaded
+        ? 'bg-red-500'
+        : 'bg-gradient-to-r from-blue-400 to-blue-600';
+
 
     return (
         // 배경색을 밝은 톤(bg-gray-50)으로 변경
@@ -140,7 +152,7 @@ function App() {
 
             <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-                {/* 1. 경고 패널 */}
+                {/* 1. 경고 패널 (WarningPanel.tsx는 그대로 유지) */}
                 <div className="lg:col-span-2">
                     <WarningPanel message={warningMessage} />
                 </div>
@@ -204,28 +216,28 @@ function App() {
                         </div>
                     </div>
 
-                    {/* 적재 무게 게이지 */}
+                    {/* 적재 무게 게이지 (요청에 따라 퍼센트로 변경됨) */}
                     <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100">
                         <div className="flex justify-between items-end mb-3">
                             <h2 className="text-lg font-bold text-gray-800">현재 적재 무게</h2>
                             <span className={`text-3xl font-bold ${data?.isOverloaded ? 'text-red-500' : 'text-blue-600'}`}>
-                {data?.weight || 0} <span className="text-xl text-gray-400">kg</span>
-              </span>
+                                {weightPercentage.toFixed(1)} <span className="text-xl text-gray-400">%</span>
+                            </span>
                         </div>
                         {/* 게이지 바 */}
                         <div className="w-full bg-gray-100 rounded-full h-6 overflow-hidden shadow-inner">
                             <div
-                                className={`h-full transition-all duration-700 ease-out ${data?.isOverloaded ? 'bg-red-500' : 'bg-gradient-to-r from-blue-400 to-blue-600'}`}
-                                style={{ width: `${Math.min((data?.weight || 0) / 10 * 100, 100)}%` }}
+                                className={`h-full transition-all duration-700 ease-out ${gaugeColorClass}`}
+                                style={{ width: `${weightPercentage}%` }} // 백분율 값 사용
                             >
                                 {/* 빗금 무늬 효과 (CSS) */}
                                 <div className="w-full h-full opacity-30" style={{ backgroundImage: 'linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent)', backgroundSize: '1rem 1rem' }}></div>
                             </div>
                         </div>
                         <div className="flex justify-between text-xs text-gray-400 mt-2 font-medium">
-                            <span>0kg</span>
-                            <span>5kg (최대)</span>
-                            <span>10kg</span>
+                            <span>0%</span>
+                            <span>80% (경고)</span>
+                            <span>100% (최대)</span>
                         </div>
                     </div>
 
