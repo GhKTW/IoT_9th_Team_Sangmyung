@@ -11,7 +11,7 @@ from sensors import *
 # ==========================================
 # ⚡ 서버 통신 설정
 # ==========================================
-SERVER_URL = "http://localhost:8080/api/sensor/data"
+SERVER_URL = "http://192.168.137.3:8080/api/sensor/data"
 
 # 로드셀 무게 기준 (raw value: gram)
 MAX_LIFT_STOP_RAW_VALUE = 55000 # 들기 동작을 멈추는 최대 한계값 (프론트엔드 게이지 100% 기준)
@@ -47,6 +47,7 @@ latest_centers = []
 latest_centers_lock = threading.Lock()
 process_every_n_frames = 15
 frame_idx = 0
+light_control_enabled = True  # 조도 센서 제어 활성화 플래그
 
 # MOVING
 FORWARD     = [1, 0, 1, 0]
@@ -108,6 +109,43 @@ def turn_right(duration: float | None = None):
 # ====================================================
 
 
+# ====================================================
+# =====================조도 센서 제어 START======================
+# ====================================================
+def light_sensor_monitor():
+    """조도 센서를 모니터링하고 조명을 자동으로 제어하는 쓰레드"""
+    global exit_flag, light_control_enabled
+    
+    print("💡 조도 센서 모니터링 시작")
+    
+    while not exit_flag:
+        if light_control_enabled:
+            try:
+                # 조도 센서 값 읽기
+                light_value = get_light_value()
+                print(f"💡 현재 조도 값: {light_value}")
+                
+                # 조도 값에 따라 조명 제어
+                if light_value <= 10:
+                    lightOn()
+                    print("💡 조명 켜짐 (조도 낮음)")
+                else:
+                    lightOff()
+                    print("💡 조명 꺼짐 (조도 충분)")
+                    
+            except Exception as e:
+                print(f"❌ 조도 센서 읽기 오류: {e}")
+        
+        # 5초 대기
+        time.sleep(5)
+    
+    print("💡 조도 센서 모니터링 종료")
+
+# ====================================================
+# =====================조도 센서 제어 END======================
+# ====================================================
+
+
 # -------------------------------
 # Start camera
 # -------------------------------
@@ -128,7 +166,7 @@ def get_sensor_state(detected_obj: str, status: str, total_weight_g: float | Non
     """현재 센서 상태를 읽어 서버 전송용 딕셔너리를 반환합니다."""
     # 센서 값 읽기
     distance_values = get_distance_values()
-    light_level = get_light_level()
+    light_level = get_light_value()
 
     if total_weight_g is None:
         weight = read_weights()
@@ -159,9 +197,9 @@ def send_data(payload: dict):
     """서버로 데이터를 전송합니다."""
     try:
         response = requests.post(SERVER_URL, json=payload, timeout=0.5)
-        # print(f"📡 전송: {payload['status']} | 물체: {payload['detectedObject']} | 무게: {payload['weight']}% | 응답: {response.status_code}")
+        print(f"📡 전송: {payload['status']} | 물체: {payload['detectedObject']} | 무게: {payload['weight']}% | 응답: {response.status_code}")
     except requests.exceptions.RequestException as e:
-        # print(f"❌ 전송 실패: {e}")
+        print(f"❌ 전송 실패: {e}")
         pass # 통신 실패는 무시하고 프로그램 지속
 
 # -------------------------------
@@ -187,7 +225,7 @@ def detect_object(image):
     with latest_centers_lock:
         global latest_centers
         latest_centers = centers[:]
-        # print(f"Detected: {latest_centers}") # 디버깅용
+        print(f"Detected: {latest_centers}") # 디버깅용
     return centers
 
 
@@ -356,20 +394,20 @@ def track_step(target_class: str, is_going_to_lift: bool):
         # ----------------------- MOVEMENT CONTROL -----------------------
         center_x = FRAME_WIDTH_DEFAULT // 2
         error = target_x - center_x
-        scale = abs(error) / 320.0 * 0.45 + 0.05
+        scale = abs(error) / 320.0 * 0.4
 
         current_status = "APPROACHING" if is_going_to_lift else "TRANSPORTING"
 
         if abs(error) <= DEAD_ZONE:
-            # print("찾아가는중... 전진")
+            print("찾아가는중... 전진")
             move_forward(0.3)
             time.sleep(0.4)
         elif error < 0:
-            # print("찾아가는중... 우회전")
+            print("찾아가는중... 우회전")
             turn_right(scale)
             time.sleep(0.4)
         else:
-            # print("찾아가는중... 좌회전")
+            print("찾아가는중... 좌회전")
             turn_left(scale)
             time.sleep(0.4)
 
@@ -452,7 +490,7 @@ def attempt_lift(target_class: str):
         # 특정 높이만큼 들기
         idx = 0
         for idx in range(40): # 최대 20번 반복 들기 시도
-            # print(f"lift_up #{idx}")
+            print(f"lift_up #{idx}")
             lift_height = get_distance_values()[0]
             weight = read_weights()
             total_weight = weight[0] + weight[1]
@@ -493,7 +531,7 @@ def attempt_lift(target_class: str):
 
                 break
             else:
-                # print("들기 종료 조건 미충족, 계속 시도")
+                print("들기 종료 조건 미충족, 계속 시도")
                 continue
 
         if (not lifted_successful):
@@ -556,12 +594,12 @@ def lift_down_weight(target_class: str, is_overloaded: bool = False):
     # 최대 30번 반복 내리기 시도
     for i in range(30):
         lift_motor_down(0.1, 0.5)  # 속도 0.5로 내리기
-        # print("down...")
+        print("down...")
         # 조금 내리고 로드셀 값 읽기
         lift_height = get_distance_values()[0]
         weight = read_weights()
         total_weight = weight[0] + weight[1]
-        # print(total_weight)
+        print(total_weight)
 
         # --- 상태 전송: UNLOADING 중 ---
         payload = get_sensor_state(target_class, current_status, total_weight_g=total_weight, is_overloaded=is_overloaded)
@@ -596,6 +634,10 @@ if __name__ == "__main__":
     start_camera_process(0)
     t = threading.Thread(target=read_frames, daemon=True)
     t.start()
+
+    # 조도 센서 모니터링 쓰레드 시작
+    light_thread = threading.Thread(target=light_sensor_monitor, daemon=True)
+    light_thread.start()
 
     # 여기서부터 모든 로직 구현을 하자!
     # 시작: 목표 설정부터(사과 -> 바나나 -> 브로콜리) 순으로 처리할거임
