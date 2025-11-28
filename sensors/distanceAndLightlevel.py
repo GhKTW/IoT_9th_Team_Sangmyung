@@ -26,7 +26,7 @@ def adc_to_voltage(adc_value, vref=3.3):
 # ---------------- 거리 변환 ----------------
 def voltage_to_distance_cm(voltage):
     if voltage < 0.25:
-        return 0
+        return 15
     return min(15.0, max(2.0, (27.86 * (voltage ** -1.15)) / 10.0))
 
 # ---------------- 반환용 함수 1: 거리값 3개 ----------------

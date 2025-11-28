@@ -45,9 +45,12 @@ def stop_all():
     # PWM 0으로
     ENA.value = 0.0
     ENB.value = 0.0
+    ENA_lift = 0
     # 방향핀도 다 LOW로
     for o in outputs:
         o.off()
+    for oo in outputs_lift:
+        oo.off()
 #브레이크 / 강한 제동
 def brake_all():
     ENA.value = 1.0
@@ -73,4 +76,14 @@ def lift_motor_down(duaration: float, speed: float):
     outputs_lift[0].on()   # LIFT1
     outputs_lift[1].off()    # LIFT2
     time.sleep(duaration)
-    
+
+def set_motor(values):
+    in1, in2, in3, in4 = values
+
+    ENA.value = 1
+    ENB.value = 1
+
+    outputs[0].on() if in1 == 1 else outputs[0].off()
+    outputs[1].on() if in2 == 1 else outputs[1].off()
+    outputs[2].on() if in3 == 1 else outputs[2].off()
+    outputs[3].on() if in4 == 1 else outputs[3].off()
