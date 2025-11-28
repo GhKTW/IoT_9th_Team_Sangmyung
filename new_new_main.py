@@ -45,6 +45,7 @@ latest_centers = []
 latest_centers_lock = threading.Lock()
 process_every_n_frames = 15
 frame_idx = 0
+_is_light_on_status = False
 
 # MOVING
 FORWARD     = [1, 0, 1, 0]
