@@ -203,7 +203,7 @@ def send_data(payload: dict):
         # requests.post 호출 시 타임아웃을 짧게 설정하여 병목 현상 최소화
         response = requests.post(SERVER_URL, json=payload, timeout=0.3)
         # print(f"📡 전송: {payload['status']} | 물체: {payload['detectedObject']} | 무게: {payload['weight']}% | 응답: {response.status_code}")
-    except requests.exceptions.RequestException:
+    except requests.exceptions.RequestException as e:
         print(f"❌ 전송 실패: {e}")
         pass # 통신 실패는 무시하고 프로그램 지속
 
