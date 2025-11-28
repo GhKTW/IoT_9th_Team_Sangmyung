@@ -12,13 +12,11 @@ public class SensorController {
 
 
     private SensorRequestDTO latestData = new SensorRequestDTO(
-            0.0,   // distance
-            0.0,   // lightLevel
-            0.0,   // weight
+            0.0,   // weight (초기값 0.0)
             false, // isOverloaded
             false, // isLightOn
             "NONE",
-            "WAITING"
+            "STANDBY" // WAITING 대신 STANDBY로 초기 상태 명확화
     );
 
     @Operation(summary = "센서 데이터 수신 (From Pi)", description = "라즈베리파이에서 보낸 데이터를 받아서 갱신합니다.")
