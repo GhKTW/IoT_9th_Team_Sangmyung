@@ -460,7 +460,9 @@ def attempt_lift(target_class: str):
     print(f"현재 내 앞 거리: {center_distance}")
     if center_distance > 10:  # 10cm 이내에 물체가 없으면
         for i in range(20):
-            center_distance = get_distance_values()[1]
+            dist = get_distance_values()
+            center_distance = dist[1]
+            colision_detection = dist[2]
             if (center_distance <= 10):
                 print("물건 들기 준비 완료")
                 ready_to_lift = True

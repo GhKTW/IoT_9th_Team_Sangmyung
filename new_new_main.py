@@ -21,13 +21,26 @@ SERVER_URL = "http://192.168.137.3:8080/api/sensor/data"
 MAX_LIFT_STOP_RAW_VALUE = 55000
 OVERLOAD_WARNING_THRESHOLD = MAX_LIFT_STOP_RAW_VALUE * 0.8
 _is_light_on_status = False
+_last_status = "SEARCHING"
 
 def get_sensor_state(detected_obj: str, status: str, total_weight_g: float | None = None, is_overloaded: bool | None = None) -> dict:
-    global _is_light_on_status
-    if status in ['LIFTING', 'WEIGHING', 'UNLOADING', 'OVERLOAD', 'TRANSPORTING']:
+    global _is_light_on_status, _last_status
+
+    #  조명 업데이트용("LIGHT_UPDATE") 호출이 아닐 때만 상태를 기록함
+    # 즉, 메인 루프가 보내는 진짜 상태(LIFTING, MOVING 등)만 기억함
+    if status != "LIGHT_UPDATE": 
+        _last_status = status
+    
+    # 조명 업데이트일 경우, 계산을 위해 방금 기억해둔 상태(_last_status)를 임시로 사용
+    current_calculation_status = _last_status if status == "LIGHT_UPDATE" else status
+
+    # --- 1. 무게 및 과부하 계산 ---
+    # 저장된 상태(_last_status)가 무게를 재야 하는 상태라면 무게를 읽음
+    if current_calculation_status in ['LIFTING', 'WEIGHING', 'UNLOADING', 'OVERLOAD', 'TRANSPORTING']:
         if total_weight_g is None:
             weight = read_weights()
             total_weight_g = weight[0] + weight[1]
+        
         max_load = MAX_LIFT_STOP_RAW_VALUE
         weight_percentage = min(100.0, max(0.0, (total_weight_g / max_load) * 100.0))
         is_overloaded_calculated = total_weight_g >= OVERLOAD_WARNING_THRESHOLD
@@ -41,7 +54,7 @@ def get_sensor_state(detected_obj: str, status: str, total_weight_g: float | Non
         "isOverloaded": final_is_overloaded,
         "isLightOn": _is_light_on_status,
         "detectedObject": detected_obj,
-        "status": status
+        "status": _last_status 
     }
 
 def send_data(payload: dict):
@@ -77,6 +90,7 @@ process_every_n_frames = 10
 frame_idx = 0
 light_control_enabled = True  # 조도 센서 제어 활성화 플래그
 
+
 # MOVING
 FORWARD     = [1, 0, 1, 0]
 BACKWARD    = [0, 1, 0, 1]
@@ -103,12 +117,20 @@ def light_sensor_monitor():
             try:
                 light_value = get_light_value()
 
-                if light_value <= 10:
-                    lightOn()
-                    _is_light_on_status = True # 상태 갱신
-                else:
-                    lightOff()
-                    _is_light_on_status = False # 상태 갱신
+                if light_value <= 10: # 어두움
+                    if not _is_light_on_status:
+                        lightOn()
+                        _is_light_on_status = True
+                        # [핵심] "LIGHT_UPDATE"라는 특수 키워드로 보냄
+                        # -> get_sensor_state가 이걸 보고 "아, 상태는 바꾸지 말고 조명만 갱신하자"라고 판단함
+                        send_data(get_sensor_state("none", "LIGHT_UPDATE"))
+                        
+                else: # 밝음
+                    if _is_light_on_status:
+                        lightOff()
+                        _is_light_on_status = False
+                        # [핵심] 꺼질 때도 동일하게 보냄
+                        send_data(get_sensor_state("none", "LIGHT_UPDATE"))
 
             except Exception as e:
                 print(f"❌ 조도 센서 읽기 오류: {e}")
@@ -472,17 +494,19 @@ def attempt_lift(target_name: str): # 이름만 받음
     # 물건이 바로 앞에 없는 경우 추가
     ready_to_lift = False
     print(f"📏 현재 내 앞 거리: {center_distance}")
-    if center_distance > 5:  # 10cm 이내에 물체가 없으면
+    if center_distance > 8:  # 10cm 이내에 물체가 없으면
         print("🔍 가운데 거리센서, 물체 있는지 확인중...")
         for i in range(20):
-            center_distance = get_distance_values()[1]
-            print(f"  ⬆️ 조금씩 전진 시도 #{i}, 거리: {center_distance}")
-            if (center_distance <= 10):
+            dist = get_distance_values()
+            center_distance = dist[1]
+            colision_detection = dist[2]
+            print(f"  ⬆️ 조금씩 전진 시도 #{i}, 거리: {center_distance}, {colision_detection}")
+            if (center_distance <= 8 or colision_detection <= 12):
                 print("✅ 물건 들기 준비 완료")
                 ready_to_lift = True
                 break
             else:
-                move_forward(0.2)
+                move_forward(0.3)
                 time.sleep(0.3)
         else:
             print("❌ 앞에 물체 없음, 들기 실패")
@@ -520,6 +544,12 @@ def attempt_lift(target_name: str): # 이름만 받음
                 print("  🔄 들기 종료 조건 미충족, 계속 시도")
                 continue
 
+        weight = read_weights()
+        total_weight = weight[0] + weight[1]
+        if total_weight <= 1000:
+            lifted_successful = False
+            print("들기는 했는데 아무것도 없었음")
+
         if (not lifted_successful):
             # 한계 무게가 초과되었다면 다시 내리기
             lift_down_weight()
@@ -527,7 +557,7 @@ def attempt_lift(target_name: str): # 이름만 받음
     # 일단 후진해서 180도 돌고, lift_successful 플래그에 따라 다음 동작 실행
     print("🔄 들기 시도 종료, 뒤로 가서 180도 회전")
     move_backward(0.6)  # 1초 후진
-    turn_left(3.5)    # 2.18초 우회전 (대략 180도)
+    turn_left(3)    # 2.18초 우회전 (대략 180도)
     stop()
 
 
@@ -547,8 +577,8 @@ def attempt_place(target_name: str): # [필수] 이름만 받음
     # 물체 놓을 곳 바로 앞에 왔으니까, 내려놓기
     lift_down_weight()
 
-    move_backward(0.7)  # 1초 후진
-    turn_left(3.5)    # 2.18초 우회전 (대략 180도)
+    move_backward(1)  # 1초 후진
+    turn_left(3)    # 2.18초 우회전 (대략 180도)
     stop()
     print("✅ 하차 끝")
     #  다 내렸으니 'ARRIVED' (무게 0)
@@ -564,10 +594,8 @@ def lift_down_weight():
         print("  ⬇️ down...")
         # 조금 내리고 로드셀 값 읽기
         lift_height = get_distance_values()[0]
-        weight = read_weights()
-        total_weight = weight[0] + weight[1]
         print(f"  ⚖️ {total_weight}")
-        if total_weight <= 5000 or lift_height < 2.5:  # 총 무게가 기준치 이하면 내려놓기 완료
+        if lift_height < 2.5:  # 총 무게가 기준치 이하면 내려놓기 완료
             print("✅ 내려놓기 끝")
             placed_successful = True
             break
