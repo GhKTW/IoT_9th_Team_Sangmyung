@@ -49,6 +49,9 @@ process_every_n_frames = 15
 frame_idx = 0
 light_control_enabled = True  # 조도 센서 제어 활성화 플래그
 
+last_light_state = None
+
+
 # MOVING
 FORWARD     = [1, 0, 1, 0]
 BACKWARD    = [0, 1, 0, 1]
@@ -114,7 +117,7 @@ def turn_right(duration: float | None = None):
 # ====================================================
 def light_sensor_monitor():
     """조도 센서를 모니터링하고 조명을 자동으로 제어하는 쓰레드"""
-    global exit_flag, light_control_enabled
+    global exit_flag, light_control_enabled, last_light_state
 
     print("💡 조도 센서 모니터링 시작")
 
@@ -123,15 +126,22 @@ def light_sensor_monitor():
             try:
                 light_value = get_light_value()
 
-                if light_value <= 10:
-                    lightOn()
-                else:
-                    lightOff()
+                # 현재 상태 판단 (True: 불 켜짐, False: 불 꺼짐)
+                current_state = (light_value <= 10)
 
-            except Exception as e:
-                print(f"❌ 조도 센서 읽기 오류: {e}")
-                pass
-
+                # 상태가 변경되었을 때만 동작
+                if current_state != last_light_state:
+                    if current_state:
+                        lightOn()
+                        print("💡 불 켜짐")
+                        # TODO: 불 켜진 상태 전송
+                    else:
+                        lightOff()
+                        print("💡 불 꺼짐")
+                        # TODO: 불 꺼진 상태 전송
+                    
+                    # 상태 업데이트
+                    last_light_state = current_state
         # 5초 대기
         time.sleep(5)
 
@@ -202,7 +212,7 @@ def send_data(payload: dict):
     try:
         # requests.post 호출 시 타임아웃을 짧게 설정하여 병목 현상 최소화
         response = requests.post(SERVER_URL, json=payload, timeout=0.3)
-        # print(f"📡 전송: {payload['status']} | 물체: {payload['detectedObject']} | 무게: {payload['weight']}% | 응답: {response.status_code}")
+        print(f"📡 전송: {payload['status']} | 물체: {payload['detectedObject']} | 무게: {payload['weight']}% | 응답: {response.status_code}")
     except requests.exceptions.RequestException as e:
         print(f"❌ 전송 실패: {e}")
         pass # 통신 실패는 무시하고 프로그램 지속
@@ -230,7 +240,7 @@ def detect_object(image):
     with latest_centers_lock:
         global latest_centers
         latest_centers = centers[:]
-        # print(f"Detected: {latest_centers}") # 디버깅용
+        print(f"Detected: {latest_centers}") # 디버깅용
     return centers
 
 
@@ -307,6 +317,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
         # --- 트럭과 target_object를 찾기 ---
         target_object = next((obj for obj in current_centers if obj[0] == target_class), None)
         truck_object  = next((obj for obj in current_centers if obj[0] == TRUCK_CLASS_NAME), None)
+        print(f"Target: {target_object}, Truck: {truck_object}")  # 디버깅
 
         # ----------------------- CASE 1 : PICK MODE -----------------------
         if is_going_to_lift:
@@ -319,6 +330,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
                     print("객체를 찾지 못함, 탐색 중단")
                     return False
 
+                print(f"들기 모드, {target_class} 탐지 실패 - 좌회전 탐색")
                 turn_left(0.4)
                 time.sleep(0.4)
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
@@ -346,6 +358,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
                 if search_count > max_search_attempts:
                     print("목적지를 찾지 못함, 탐색 중단")
                     return False
+                print(f"놓기 모드, 객체 탐지 실패 (target:{target_object is not None}, truck:{truck_object is not None})")
 
                 turn_left(0.4)
                 time.sleep(0.4)
@@ -356,6 +369,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
 
             # 두 객체의 x좌표 차이 확인
             x_diff = abs(target_object[1] - truck_object[1])
+            print(f"X 좌표 차이: {x_diff}")
 
             if x_diff > 70:
                 search_count += 1
@@ -364,6 +378,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
                     send_data(get_sensor_state(target_class, "ERROR", is_overloaded=None)) # 상태 전송
                     return False
 
+                print(f"놓기 모드, 정렬 필요 (차이: {x_diff})")
                 turn_left(0.2)
                 time.sleep(0.2)
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
@@ -373,6 +388,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
             else:
                 search_count = 0
                 target_x = truck_object[1]
+                print(f"객체 정렬 완료: truck at {target_x}")
 
         # ----------------------- MOVEMENT CONTROL -----------------------
         center_x = FRAME_WIDTH_DEFAULT // 2
@@ -381,13 +397,18 @@ def track_step(target_class: str, is_going_to_lift: bool):
 
         # 움직임 실행
         if abs(error) <= DEAD_ZONE:
+            print("찾아가는중... 전진")
             move_forward(0.3)
             time.sleep(0.4)
         elif error < 0:
+            print("찾아가는중... 우회전")
             turn_right(scale)
+            # turn_right(0.2)
             time.sleep(0.4)
         else:
+            print("찾아가는중... 좌회전")
             turn_left(scale)
+            # turn_left(0.2)
             time.sleep(0.4)
 
         time.sleep(0.05)  # 안정화 대기
@@ -401,15 +422,17 @@ def track_step(target_class: str, is_going_to_lift: bool):
     # ----------------------- FINAL ACTION -----------------------
     stop()
 
-    # --- 상태 전송: 목적지 도착 ---
-    payload = get_sensor_state(target_class, "ARRIVED", is_overloaded=None)
-    send_data(payload)
+    # # --- 상태 전송: 목적지 도착 ---
+    # payload = get_sensor_state(target_class, "ARRIVED", is_overloaded=None)
+    # send_data(payload)
 
     if is_going_to_lift:
+        print("물건 들기 시도")
         success_lifting = attempt_lift(target_class)
         return success_lifting
 
     else:
+        print("물건 놓기 시도")
         success_placing = attempt_place(target_class)
         return success_placing
 

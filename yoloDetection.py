@@ -19,7 +19,7 @@ init_spi()
 # -------------------------------
 model = YOLO('yolov8n.pt')  # Load pretrained YOLOv8n model
 model.conf = 0.4
-model.overrides['imgsz'] = 320
+model.overrides['imgsz'] = 
 
 # -------------------------------
 # Target classes
@@ -54,6 +54,9 @@ exit_flag = False
 latest_centers = []  # [(name, x_center, y_center), ...]
 latest_centers_lock = threading.Lock()
 
+latest_detection_id = 0
+latest_detection_id_lock = threading.Lock()
+
 
 # -------------------------------
 # Start camera process
@@ -73,6 +76,8 @@ def start_camera_process(camera_index):
 # Detect objects using YOLOv8
 # -------------------------------
 def detect_object(image):
+    global latest_detection_id
+
     results = model(image, classes=list(TARGET_CLASSES.keys()))
     boxes = results[0].boxes
 
@@ -87,7 +92,7 @@ def detect_object(image):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
     # -------------------------------
-    # UPDATE global latest_centers
+    # UPDATE latest_centers
     # -------------------------------
     centers = []
     for cls_id, x1, y1, x2, y2 in fruits:
@@ -96,10 +101,16 @@ def detect_object(image):
         centers.append((TARGET_CLASSES[cls_id], x_center, y_center))
 
     with latest_centers_lock:
-        global latest_centers
-        latest_centers = centers[:]  # deep copy
+        latest_centers[:] = centers
+
+    # -------------------------------
+    # UPDATE detection id
+    # -------------------------------
+    with latest_detection_id_lock:
+        latest_detection_id += 1
 
     return image, fruits
+
 
 
 # -------------------------------
