@@ -298,7 +298,7 @@ def read_frames():
 # =========================================================
 
 FRAME_WIDTH_DEFAULT = 640 #가로가 320px /정중앙 x 좌표 160px
-DEAD_ZONE = 25   # 중앙 ±20px
+DEAD_ZONE = 28   # 중앙 ±20px
 
 #카메라에서 얻은 객체 중심 x좌표를 오프셋으로 움직이는 함수
 def track_step(target_class: str, is_going_to_lift: bool):
@@ -345,7 +345,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
                     turn_left(0.1)
                 elif last_turn_direction == 'left':
                     print(f"  🔄 들기 모드, {target_class} 탐지 실패 - 우회전 탐색 (좌회전 했다가 놓침)")
-                    turn_right(0.1)
+                    turn_right(0.2)
                 else:
                     print(f"  🔄 들기 모드, {target_class} 탐지 실패 - 좌회전 탐색 (기본)")
                     turn_left(0.1)
@@ -519,11 +519,13 @@ def attempt_lift(target_name: str): # 이름만 받음
     if ready_to_lift:
         # 특정 높이만큼 들기
         idx = 0
-        for idx in range(40): # 최대 20번 반복 들기 시도
-            print(f"  ⬆️ lift_up #{idx}")
+        overweight = False
+        for idx in range(100): # 최대 20번 반복 들기 시도
             lift_height = get_distance_values()[0]
             weight = read_weights()
             total_weight = weight[0] + weight[1]
+
+            print(f"  ⬆️ lift_up #{idx}, weight: {total_weight}")
 
             lift_motor_up(0.1, 0.5)  # 속도 0.5로 들기
 
@@ -538,6 +540,7 @@ def attempt_lift(target_name: str): # 이름만 받음
                 #  과부하 알림
                 send_data(get_sensor_state(target_name, "OVERLOAD", total_weight_g=total_weight, is_overloaded=True))
                 lifted_successful = False
+                overweight = True
                 stop()
                 break
             else:
@@ -556,9 +559,13 @@ def attempt_lift(target_name: str): # 이름만 받음
 
     # 일단 후진해서 180도 돌고, lift_successful 플래그에 따라 다음 동작 실행
     print("🔄 들기 시도 종료, 뒤로 가서 180도 회전")
-    move_backward(0.6)  # 1초 후진
-    turn_left(3)    # 2.18초 우회전 (대략 180도)
-    stop()
+    if (overweight == True):
+        move_backward(0.7)
+        stop()
+    else:
+        move_backward(0.7)  # 1초 후진
+        turn_left(3)    # 2.18초 우회전 (대략 180도)
+        stop()
 
 
     if (lifted_successful):
@@ -577,7 +584,7 @@ def attempt_place(target_name: str): # [필수] 이름만 받음
     # 물체 놓을 곳 바로 앞에 왔으니까, 내려놓기
     lift_down_weight()
 
-    move_backward(1)  # 1초 후진
+    move_backward(0.7)  # 1초 후진
     turn_left(3)    # 2.18초 우회전 (대략 180도)
     stop()
     print("✅ 하차 끝")
@@ -594,7 +601,7 @@ def lift_down_weight():
         print("  ⬇️ down...")
         # 조금 내리고 로드셀 값 읽기
         lift_height = get_distance_values()[0]
-        print(f"  ⚖️ {total_weight}")
+        print(f"  ⚖️ {lift_height}")
         if lift_height < 2.5:  # 총 무게가 기준치 이하면 내려놓기 완료
             print("✅ 내려놓기 끝")
             placed_successful = True

@@ -19,7 +19,7 @@ init_spi()
 # -------------------------------
 model = YOLO('yolov8n.pt')  # Load pretrained YOLOv8n model
 model.conf = 0.4
-model.overrides['imgsz'] = 
+model.overrides['imgsz'] = 640
 
 # -------------------------------
 # Target classes

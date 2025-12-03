@@ -32,14 +32,14 @@ def voltage_to_distance_cm(voltage):
 # ---------------- 반환용 함수 1: 거리값 3개 ----------------
 def get_distance_values():
     """CH0 ~ CH2 거리 센서의 값을 cm로 반환"""
-    channels = [0, 1, 2]
+    channels = [0, 1, 2, 4]
     distances = []
     for ch in channels:
         adc_val = read_adc(ch)
         voltage = adc_to_voltage(adc_val)
         dist = voltage_to_distance_cm(voltage)
         distances.append(round(dist, 2))
-    return distances  # 예: [5.32, 7.21, 12.44]
+    return distances  # 예: [5.32, 7.21, 12.44, 12.44]
 
 # ---------------- 반환용 함수 2: 조도 센서 ----------------
 def get_light_value(channel=3, vref=3.3):
