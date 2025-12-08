@@ -14,9 +14,9 @@ from sensors import *
 init_spi()
 setup_loadcell()
 
-# ====================================================
+# ==============================================================
 #  통신 설정 및 함수
-# ====================================================
+# ==============================================================
 SERVER_URL = "http://192.168.137.3:8080/api/sensor/data"
 MAX_LIFT_STOP_RAW_VALUE = 55000
 OVERLOAD_WARNING_THRESHOLD = MAX_LIFT_STOP_RAW_VALUE * 0.8
@@ -62,7 +62,7 @@ def send_data(payload: dict):
         requests.post(SERVER_URL, json=payload, timeout=0.3)
     except requests.exceptions.RequestException:
         pass
-# ====================================================
+# ==============================================================
 
 
 # -------------------------------
@@ -103,14 +103,14 @@ process = None
 
 line_values = []
 
-# ====================================================
+# ==============================================================
 # =====================조도 센서 제어 START======================
-# ====================================================
+# ==============================================================
 def light_sensor_monitor():
     """조도 센서를 모니터링하고 조명을 자동으로 제어하는 쓰레드"""
     global exit_flag, light_control_enabled, _is_light_on_status
 
-    print("💡 조도 센서 모니터링 시작")
+    print("조도 센서 모니터링 시작")
 
     while not exit_flag:
         if light_control_enabled:
@@ -133,22 +133,22 @@ def light_sensor_monitor():
                         send_data(get_sensor_state("none", "LIGHT_UPDATE"))
 
             except Exception as e:
-                print(f"❌ 조도 센서 읽기 오류: {e}")
+                print(f"조도 센서 읽기 오류: {e}")
                 pass
 
         # 5초 대기
         time.sleep(5)
 
-    print("💡 조도 센서 모니터링 종료")
+    print("조도 센서 모니터링 종료")
 
-# ====================================================
+# ==============================================================
 # =====================조도 센서 제어 END======================
-# ====================================================
+# ==============================================================
 
 
-# ====================================================
+# ==============================================================
 # =====================이동 관련 START======================
-# ====================================================
+# ==============================================================
 # 이동 관련 전역변수
 DEFAULT_SPEED = 0.6
 _current_speed = DEFAULT_SPEED   # 기본 PWM 값 (0.0 ~ 1.0)
@@ -200,9 +200,9 @@ def turn_snake_l(duration: float | None = None):
     time.sleep(duration)
     stop()
 
-# ====================================================
-# =====================이동 관련 END======================
-# ====================================================
+# ==============================================================
+# =========================이동 관련 END=========================
+# ==============================================================
 
 
 # -------------------------------
@@ -246,7 +246,7 @@ def detect_object(image):
         detection_sequence += 1
         current_seq = detection_sequence
 
-    print(f"📹 탐지 완료 [시퀀스 #{current_seq}]: {centers}")
+    print(f"탐지 완료 [시퀀스 #{current_seq}]: {centers}")
     return centers
 
 
@@ -293,16 +293,16 @@ def read_frames():
         if len(buffer) > 10 * 1024 * 1024:
             buffer = b''
 
-# =========================================================
-# =====================타겟 트래킹 관련 START======================
-# =========================================================
+# ==============================================================
+# =====================타겟 트래킹 관련 START====================
+# ==============================================================
 
 FRAME_WIDTH_DEFAULT = 640 #가로가 320px /정중앙 x 좌표 160px
 DEAD_ZONE = 28   # 중앙 ±20px
 
 #카메라에서 얻은 객체 중심 x좌표를 오프셋으로 움직이는 함수
 def track_step(target_class: str, is_going_to_lift: bool):
-    print("🎯 물건 가지러 / 놓으러 가기 시작")
+    print("물건 가지러 / 놓으러 가기 시작")
     search_count = 0
     max_search_attempts = 500000  # 최대 탐색 횟수
     last_turn_direction = None  # 마지막 회전 방향 저장 ('left' or 'right')
@@ -316,48 +316,48 @@ def track_step(target_class: str, is_going_to_lift: bool):
             current_sequence = detection_sequence
             current_centers = latest_centers[:]
 
-        # ⚠️ 새로운 탐지 결과가 없으면 대기 (시퀀스 번호가 같으면 스킵)
+        # 새로운 탐지 결과가 없으면 대기 (시퀀스 번호가 같으면 스킵)
         if current_sequence == last_processed_sequence:
             time.sleep(0.05)  # 짧은 대기 후 재확인
             continue
 
-        # ✅ 새로운 탐지 결과만 처리
+        # 새로운 탐지 결과만 처리
         last_processed_sequence = current_sequence
-        print(f"🔄 새 탐지 결과 처리 시작 - 시퀀스: #{current_sequence}")
+        print(f"새 탐지 결과 처리 시작 - 시퀀스: #{current_sequence}")
 
         # --- 트럭과 target_object를 찾기 ---
         target_object = next((obj for obj in current_centers if obj[0] == target_class), None)
         truck_object  = next((obj for obj in current_centers if obj[0] == TRUCK_CLASS_NAME), None)
 
-        print(f"  🔍 Target: {target_object}, Truck: {truck_object}")  # 디버깅
+        print(f"  Target: {target_object}, Truck: {truck_object}")  # 디버깅
 
         # ----------------------- CASE 1 : PICK MODE -----------------------
         if is_going_to_lift:
             if target_object is None:
                 search_count += 1
                 if search_count > max_search_attempts:
-                    print("❌ 객체를 찾지 못함, 탐색 중단")
+                    print("객체를 찾지 못함, 탐색 중단")
                     return False
 
                 # 마지막 회전의 반대 방향으로 탐색
                 if last_turn_direction == 'right':
-                    print(f"  🔄 들기 모드, {target_class} 탐지 실패 - 좌회전 탐색 (우회전 했다가 놓침)")
+                    print(f"  들기 모드, {target_class} 탐지 실패 - 좌회전 탐색 (우회전 했다가 놓침)")
                     turn_left(0.1)
                 elif last_turn_direction == 'left':
-                    print(f"  🔄 들기 모드, {target_class} 탐지 실패 - 우회전 탐색 (좌회전 했다가 놓침)")
+                    print(f"  들기 모드, {target_class} 탐지 실패 - 우회전 탐색 (좌회전 했다가 놓침)")
                     turn_right(0.2)
                 else:
-                    print(f"  🔄 들기 모드, {target_class} 탐지 실패 - 좌회전 탐색 (기본)")
+                    print(f"  들기 모드, {target_class} 탐지 실패 - 좌회전 탐색 (기본)")
                     turn_left(0.1)
 
                 time.sleep(0.4)
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
-                    print("📍 라인 검출, 목적지 도착")
+                    print("라인 검출, 목적지 도착")
                     break
                 continue
 
             if truck_object is not None:
-                print(f"  ⚠️ 들기 모드, {target_class}과 트럭이 동시에 감지됨 - 회피 동작")
+                print(f"  들기 모드, {target_class}과 트럭이 동시에 감지됨 - 회피 동작")
 
                 # 마지막 회전의 반대 방향으로 회피
                 if last_turn_direction == 'right':
@@ -369,7 +369,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
 
                 time.sleep(0.4)
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
-                    print("📍 라인 검출, 목적지 도착")
+                    print("라인 검출, 목적지 도착")
                     break
                 continue
 
@@ -381,48 +381,48 @@ def track_step(target_class: str, is_going_to_lift: bool):
             if target_object is None or truck_object is None:
                 search_count += 1
                 if search_count > max_search_attempts:
-                    print("❌ 목적지를 찾지 못함, 탐색 중단")
+                    print("목적지를 찾지 못함, 탐색 중단")
                     return False
 
                 # 마지막 회전의 반대 방향으로 탐색
                 if last_turn_direction == 'right':
-                    print(f"  🔄 놓기 모드, 객체 탐지 실패 - 좌회전 탐색 (우회전 했다가 놓침)")
+                    print(f"  놓기 모드, 객체 탐지 실패 - 좌회전 탐색 (우회전 했다가 놓침)")
                     turn_left(0.1)
                 elif last_turn_direction == 'left':
-                    print(f"  🔄 놓기 모드, 객체 탐지 실패 - 우회전 탐색 (좌회전 했다가 놓침)")
+                    print(f"  놓기 모드, 객체 탐지 실패 - 우회전 탐색 (좌회전 했다가 놓침)")
                     turn_right(0.1)
                 else:
-                    print(f"  🔄 놓기 모드, 객체 탐지 실패 - 좌회전 탐색 (기본)")
+                    print(f"  놓기 모드, 객체 탐지 실패 - 좌회전 탐색 (기본)")
                     turn_left(0.1)
 
                 time.sleep(0.4)
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
-                    print("📍 라인 검출, 목적지 도착")
+                    print("라인 검출, 목적지 도착")
                     break
                 continue
 
             # 두 객체의 x좌표 차이 확인
             x_diff = abs(target_object[1] - truck_object[1])
-            print(f"  📏 X 좌표 차이: {x_diff}")
+            print(f"  X 좌표 차이: {x_diff}")
 
             if x_diff > 70:
                 search_count += 1
                 if search_count > max_search_attempts:
-                    print("❌ 정렬 실패, 탐색 중단")
+                    print("정렬 실패, 탐색 중단")
                     return False
 
-                print(f"  🔄 놓기 모드, 정렬 필요 (차이: {x_diff})")
+                print(f"  놓기 모드, 정렬 필요 (차이: {x_diff})")
                 turn_left(0.1)
                 last_turn_direction = 'left'  # 방향 저장
                 time.sleep(0.2)
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
-                    print("📍 라인 검출, 목적지 도착")
+                    print("라인 검출, 목적지 도착")
                     break
                 continue
             else:
                 search_count = 0
                 target_x = truck_object[1]
-                print(f"  ✅ 객체 정렬 완료: truck at {target_x}")
+                print(f"  객체 정렬 완료: truck at {target_x}")
 
         # ----------------------- MOVEMENT CONTROL -----------------------
         center_x = FRAME_WIDTH_DEFAULT // 2
@@ -430,17 +430,17 @@ def track_step(target_class: str, is_going_to_lift: bool):
         scale = abs(error) / 320.0 * 0.3
 
         if abs(error) <= DEAD_ZONE:
-            print("  ⬆️ 찾아가는중... 전진")
+            print("  찾아가는중... 전진")
             move_forward(0.3)
             last_turn_direction = None  # 전진 시 방향 초기화
             time.sleep(0.4)
         elif error < 0:
-            print("  ↪️ 찾아가는중... 우회전")
+            print("  찾아가는중... 우회전")
             turn_right(scale)
             last_turn_direction = 'right'  # 우회전 방향 저장
             time.sleep(0.4)
         else:
-            print("  ↩️ 찾아가는중... 좌회전")
+            print("  찾아가는중... 좌회전")
             turn_left(scale)
             last_turn_direction = 'left'  # 좌회전 방향 저장
             time.sleep(0.4)
@@ -449,7 +449,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
 
         # --------- EXIT CONDITION: line detected ---------
         if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
-            print("📍 라인 검출, 목적지 도착")
+            print("라인 검출, 목적지 도착")
             break
 
 
@@ -457,7 +457,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
     stop()
 
     if is_going_to_lift:
-        print("🔧 물건 들기 시도")
+        print("물건 들기 시도")
         # [통신] 도착했으니 'LIFTING' 보냄 (무게 0)
         send_data(get_sensor_state(target_class, "LIFTING", total_weight_g=0))
 
@@ -466,7 +466,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
         return success_lifting
 
     else:
-        print("🔧 물건 놓기 시도")
+        print("물건 놓기 시도")
         # 도착했으니 'UNLOADING' 보냄
         # 여기서 센서 읽어서 현재 무게 전송함
         send_data(get_sensor_state(target_class, "UNLOADING"))
@@ -476,16 +476,16 @@ def track_step(target_class: str, is_going_to_lift: bool):
 
 
 
-# =========================================================
+# ==============================================================
 # =====================타겟 트래킹 관련 END======================
-# =========================================================
+# ==============================================================
 
-# =========================================================
-# =====================물체 들어올리기 관련 START======================
-# =========================================================
+# ==============================================================
+# =====================물체 들어올리기 관련 START=================
+# ==============================================================
 
 def attempt_lift(target_name: str): # 이름만 받음
-    print("🔧 물건 들기 시도 시작")
+    print("물건 들기 시도 시작")
     # 이미 들 물체 앞에 있을 거임
 
     # 가운데 거리센서 값 읽어서 물체가 있는지 확인
@@ -493,26 +493,26 @@ def attempt_lift(target_name: str): # 이름만 받음
 
     # 물건이 바로 앞에 없는 경우 추가
     ready_to_lift = False
-    print(f"📏 현재 내 앞 거리: {center_distance}")
+    print(f"현재 내 앞 거리: {center_distance}")
     if center_distance > 8:  # 10cm 이내에 물체가 없으면
-        print("🔍 가운데 거리센서, 물체 있는지 확인중...")
+        print("가운데 거리센서, 물체 있는지 확인중...")
         for i in range(20):
             dist = get_distance_values()
             center_distance = dist[1]
             colision_detection = dist[2]
-            print(f"  ⬆️ 조금씩 전진 시도 #{i}, 거리: {center_distance}, {colision_detection}")
+            print(f"  조금씩 전진 시도 #{i}, 거리: {center_distance}, {colision_detection}")
             if (center_distance <= 8 or colision_detection <= 12):
-                print("✅ 물건 들기 준비 완료")
+                print("물건 들기 준비 완료")
                 ready_to_lift = True
                 break
             else:
                 move_forward(0.3)
                 time.sleep(0.3)
         else:
-            print("❌ 앞에 물체 없음, 들기 실패")
+            print("앞에 물체 없음, 들기 실패")
             ready_to_lift = False
     else:
-        print("✅ 물체가 가까이 있음. 들기 준비 완료")
+        print("물체가 가까이 있음. 들기 준비 완료")
         ready_to_lift = True
 
     lifted_successful = False
@@ -525,18 +525,18 @@ def attempt_lift(target_name: str): # 이름만 받음
             weight = read_weights()
             total_weight = weight[0] + weight[1]
 
-            print(f"  ⬆️ lift_up #{idx}, weight: {total_weight}")
+            print(f"  lift_up #{idx}, weight: {total_weight}")
 
             lift_motor_up(0.1, 0.5)  # 속도 0.5로 들기
 
 
             if lift_height >= 7:
-                print("✅ 물건 끝까지 들기 완료")
+                print("물건 끝까지 들기 완료")
                 lifted_successful = True
                 stop()
                 break
             elif total_weight >= 55000:
-                print("⚠️ 하중 제한 초과, 들기 실패")
+                print("하중 제한 초과, 들기 실패")
                 #  과부하 알림
                 send_data(get_sensor_state(target_name, "OVERLOAD", total_weight_g=total_weight, is_overloaded=True))
                 lifted_successful = False
@@ -544,7 +544,7 @@ def attempt_lift(target_name: str): # 이름만 받음
                 stop()
                 break
             else:
-                print("  🔄 들기 종료 조건 미충족, 계속 시도")
+                print("  들기 종료 조건 미충족, 계속 시도")
                 continue
 
         weight = read_weights()
@@ -558,7 +558,7 @@ def attempt_lift(target_name: str): # 이름만 받음
             lift_down_weight()
 
     # 일단 후진해서 180도 돌고, lift_successful 플래그에 따라 다음 동작 실행
-    print("🔄 들기 시도 종료, 뒤로 가서 180도 회전")
+    print("들기 시도 종료, 뒤로 가서 180도 회전")
     if (overweight == True):
         move_backward(0.7)
         stop()
@@ -569,12 +569,12 @@ def attempt_lift(target_name: str): # 이름만 받음
 
 
     if (lifted_successful):
-        print("✅ 물건 들기 성공, 들기 함수 종료")
+        print("물건 들기 성공, 들기 함수 종료")
         # [통신] 들었으니 운송 시작 (TRANSPORTING). 이때 멈춰있으니 정확한 무게 전송됨
         send_data(get_sensor_state(target_name, "TRANSPORTING"))
         return True
     elif(not lifted_successful):
-        print("❌ 물건 들기 실패, 들기 함수 종료")
+        print("물건 들기 실패, 들기 함수 종료")
         # [통신] 실패했으니 다시 탐색 (SEARCHING, 무게 0)
         send_data(get_sensor_state(target_name, "SEARCHING", total_weight_g=0))
         return False
@@ -587,7 +587,7 @@ def attempt_place(target_name: str): # [필수] 이름만 받음
     move_backward(0.7)  # 1초 후진
     turn_left(3)    # 2.18초 우회전 (대략 180도)
     stop()
-    print("✅ 하차 끝")
+    print("하차 끝")
     #  다 내렸으니 'ARRIVED' (무게 0)
     send_data(get_sensor_state("none", "ARRIVED", total_weight_g=0))
     return True
@@ -598,23 +598,23 @@ def lift_down_weight():
     # 최대 30번 반복 내리기 시도
     for i in range(30):
         lift_motor_down(0.1, 0.5)  # 속도 0.5로 내리기
-        print("  ⬇️ down...")
+        print("  down...")
         # 조금 내리고 로드셀 값 읽기
         lift_height = get_distance_values()[0]
-        print(f"  ⚖️ {lift_height}")
+        print(f"  {lift_height}")
         if lift_height < 2.5:  # 총 무게가 기준치 이하면 내려놓기 완료
-            print("✅ 내려놓기 끝")
+            print("내려놓기 끝")
             placed_successful = True
             break
 
     if placed_successful:
-        print("✅ 내려놓기 성공")
+        print("내려놓기 성공")
     else:
-        print("⚠️ 내려놓기 완료 (최대 시도 횟수 도달)")
+        print("내려놓기 완료 (최대 시도 횟수 도달)")
 
-# =========================================================
+# ===================================================================
 # =====================물체 들어올리기 관련 END======================
-# =========================================================
+# ===================================================================
 
 
 # -------------------------------
@@ -649,13 +649,13 @@ if __name__ == "__main__":
             # PICK (들기)
             is_going_to_lift = True
             print("===========================================")
-            print(f"🎯 Current target: {main_target}")
+            print(f"Current target: {main_target}")
             print("===========================================")
 
             # [원상복구] 값 1개만 받음
             lifting_state = track_step(main_target, is_going_to_lift)
 
-            print(f"📊 놓기 여부 {lifting_state}")
+            print(f"놓기 여부 {lifting_state}")
             # PLACE (놓기) - 들기 성공했을 때만
             if lifting_state == True:
                 is_going_to_lift = False
@@ -667,7 +667,7 @@ if __name__ == "__main__":
 
 
     except KeyboardInterrupt:
-        print("🛑 프로그램 종료")
+        print("프로그램 종료")
         # [통신] 종료 알림
         send_data(get_sensor_state("none", "ARRIVED", total_weight_g=0))
         exit_flag = True
