@@ -11,14 +11,13 @@ import org.springframework.web.bind.annotation.*;
 public class SensorController {
 
 
+    // DTO 변경에 맞춰 필드 순서와 개수를 수정해야 합니다. (weight, isOverloaded, isLightOn, detectedObject, status)
     private SensorRequestDTO latestData = new SensorRequestDTO(
-            0.0,   // distance
-            0.0,   // lightLevel
-            0.0,   // weight
-            false, // isOverloaded
-            false, // isLightOn
-            "NONE",
-            "WAITING"
+            0.0,   // weight (무게 백분율 초기값)
+            false, // isOverloaded (과적 여부)
+            false, // isLightOn (조명 켜짐 여부)
+            "NONE", // detectedObject (객체명)
+            "STANDBY" // status (로봇 상태)
     );
 
     @Operation(summary = "센서 데이터 수신 (From Pi)", description = "라즈베리파이에서 보낸 데이터를 받아서 갱신합니다.")

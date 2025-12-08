@@ -11,7 +11,7 @@ from sensors import *
 # ==========================================
 # ⚡ 서버 통신 설정
 # ==========================================
-SERVER_URL = "http://localhost:8080/api/sensor/data"
+SERVER_URL = "http://192.168.137.3:8080/api/sensor/data"
 
 # 로드셀 무게 기준 (raw value: gram)
 MAX_LIFT_STOP_RAW_VALUE = 55000 # 들기 동작을 멈추는 최대 한계값 (프론트엔드 게이지 100% 기준)
@@ -47,6 +47,10 @@ latest_centers = []
 latest_centers_lock = threading.Lock()
 process_every_n_frames = 15
 frame_idx = 0
+light_control_enabled = True  # 조도 센서 제어 활성화 플래그
+
+last_light_state = None
+
 
 # MOVING
 FORWARD     = [1, 0, 1, 0]
@@ -108,6 +112,46 @@ def turn_right(duration: float | None = None):
 # ====================================================
 
 
+# ====================================================
+# =====================조도 센서 제어 START======================
+# ====================================================
+def light_sensor_monitor():
+    """조도 센서를 모니터링하고 조명을 자동으로 제어하는 쓰레드"""
+    global exit_flag, light_control_enabled, last_light_state
+
+    print("💡 조도 센서 모니터링 시작")
+
+    while not exit_flag:
+        if light_control_enabled:
+            try:
+                light_value = get_light_value()
+
+                # 현재 상태 판단 (True: 불 켜짐, False: 불 꺼짐)
+                current_state = (light_value <= 10)
+
+                # 상태가 변경되었을 때만 동작
+                if current_state != last_light_state:
+                    if current_state:
+                        lightOn()
+                        print("💡 불 켜짐")
+                        # TODO: 불 켜진 상태 전송
+                    else:
+                        lightOff()
+                        print("💡 불 꺼짐")
+                        # TODO: 불 꺼진 상태 전송
+                    
+                    # 상태 업데이트
+                    last_light_state = current_state
+        # 5초 대기
+        time.sleep(5)
+
+    print("💡 조도 센서 모니터링 종료")
+
+# ====================================================
+# =====================조도 센서 제어 END======================
+# ====================================================
+
+
 # -------------------------------
 # Start camera
 # -------------------------------
@@ -125,43 +169,52 @@ def start_camera_process(camera_index):
 # Helper function to send sensor data
 # -------------------------------
 def get_sensor_state(detected_obj: str, status: str, total_weight_g: float | None = None, is_overloaded: bool | None = None) -> dict:
-    """현재 센서 상태를 읽어 서버 전송용 딕셔너리를 반환합니다."""
-    # 센서 값 읽기
-    distance_values = get_distance_values()
-    light_level = get_light_level()
+    """현재 센서 상태를 읽어 서버 전송용 딕셔너리를 반환합니다. (최소 센서값만 사용)"""
 
-    if total_weight_g is None:
-        weight = read_weights()
-        total_weight_g = weight[0] + weight[1]
+    # --- 1. 무게 및 과부하 계산 (LIFTING, WEIGHING, UNLOADING 시에만) ---
+    if status in ['LIFTING', 'WEIGHING', 'UNLOADING', 'OVERLOAD', 'OVERLOAD_RECOVERY']:
+        # 무게 관련 상태일 때만 센서 값 읽기
+        if total_weight_g is None:
+            weight = read_weights()
+            total_weight_g = weight[0] + weight[1]
 
-    # 무게 백분율 계산 (최대 55000이 100%가 되도록)
-    max_load = MAX_LIFT_STOP_RAW_VALUE # 55000
-    weight_percentage = min(100.0, max(0.0, (total_weight_g / max_load) * 100.0))
+        max_load = MAX_LIFT_STOP_RAW_VALUE
+        weight_percentage = min(100.0, max(0.0, (total_weight_g / max_load) * 100.0))
 
-    # 과부하 상태 결정 (80% 기준)
-    if is_overloaded is None:
-        is_overloaded = total_weight_g >= OVERLOAD_WARNING_THRESHOLD
+        is_overloaded_calculated = total_weight_g >= OVERLOAD_WARNING_THRESHOLD
+        final_is_overloaded = is_overloaded if is_overloaded is not None else is_overloaded_calculated
 
-    # 라이트 상태 결정 (임의 로직: 광량 100 이하일 때 켜짐)
-    is_light_on = light_level < 100
+    else:
+        # 기타 상태: 무게 관련 정보 0으로 설정
+        weight_percentage = 0.0
+        final_is_overloaded = False
 
+    # --- 2. 조명 상태 계산 ('isLightOn' 전송을 위해 조도 센서 값 확인) ---
+    try:
+        light_value = get_light_value()
+        # 조명 켜짐/꺼짐은 라이트 값 100 기준으로 판단 (대시보드 표시용)
+        is_light_on = light_value < 100
+    except:
+        # 센서 오류 시: isLightOn은 False로 가정
+        is_light_on = False
+
+    # --- 3. 페이로드 구성 (DTO에 맞게 최소 필수 항목만 전송) ---
     return {
-        "distance": round(distance_values[1], 1), # 가운데 거리센서 (cm)
-        "lightLevel": light_level,
-        "weight": round(weight_percentage, 1), # 백분율로 변환하여 전송
-        "isOverloaded": is_overloaded,
-        "isLightOn": is_light_on,
-        "detectedObject": detected_obj,
-        "status": status
+        "weight": round(weight_percentage, 1),# 유지: 계산된 백분율 전송
+        "isOverloaded": final_is_overloaded,  # 유지: 계산된 상태 전송
+        "isLightOn": is_light_on,             # 유지: 계산된 상태 전송
+        "detectedObject": detected_obj,       # 유지
+        "status": status                      # 유지
     }
 
 def send_data(payload: dict):
     """서버로 데이터를 전송합니다."""
     try:
-        response = requests.post(SERVER_URL, json=payload, timeout=0.5)
-        # print(f"📡 전송: {payload['status']} | 물체: {payload['detectedObject']} | 무게: {payload['weight']}% | 응답: {response.status_code}")
+        # requests.post 호출 시 타임아웃을 짧게 설정하여 병목 현상 최소화
+        response = requests.post(SERVER_URL, json=payload, timeout=0.3)
+        print(f"📡 전송: {payload['status']} | 물체: {payload['detectedObject']} | 무게: {payload['weight']}% | 응답: {response.status_code}")
     except requests.exceptions.RequestException as e:
-        # print(f"❌ 전송 실패: {e}")
+        print(f"❌ 전송 실패: {e}")
         pass # 통신 실패는 무시하고 프로그램 지속
 
 # -------------------------------
@@ -187,7 +240,7 @@ def detect_object(image):
     with latest_centers_lock:
         global latest_centers
         latest_centers = centers[:]
-        # print(f"Detected: {latest_centers}") # 디버깅용
+        print(f"Detected: {latest_centers}") # 디버깅용
     return centers
 
 
@@ -226,8 +279,7 @@ def read_frames():
 
                     if frame_idx % process_every_n_frames == 0:
                         detect_object(image)
-                        # read_frames는 주기적인 이미지 처리만 전담하고,
-                        # 상태 전송은 메인 로직(track_step, lift 등)에서 수행하여 중복 방지
+                        # NOTE: 프레임 읽기 쓰레드에서는 데이터 전송을 하지 않음
             else:
                 # 완전한 프레임이 없으면 더 읽기
                 break
@@ -265,6 +317,7 @@ def track_step(target_class: str, is_going_to_lift: bool):
         # --- 트럭과 target_object를 찾기 ---
         target_object = next((obj for obj in current_centers if obj[0] == target_class), None)
         truck_object  = next((obj for obj in current_centers if obj[0] == TRUCK_CLASS_NAME), None)
+        print(f"Target: {target_object}, Truck: {truck_object}")  # 디버깅
 
         # ----------------------- CASE 1 : PICK MODE -----------------------
         if is_going_to_lift:
@@ -275,7 +328,6 @@ def track_step(target_class: str, is_going_to_lift: bool):
                 search_count += 1
                 if search_count > max_search_attempts:
                     print("객체를 찾지 못함, 탐색 중단")
-                    send_data(get_sensor_state("none", "ERROR", is_overloaded=False))
                     return False
 
                 print(f"들기 모드, {target_class} 탐지 실패 - 좌회전 탐색")
@@ -284,23 +336,16 @@ def track_step(target_class: str, is_going_to_lift: bool):
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
                     print("라인 검출, 목적지 도착")
                     break
-
-                payload = get_sensor_state(current_target_name, current_status, is_overloaded=False)
-                send_data(payload)
                 continue
 
             current_status = "APPROACHING"
 
             if truck_object is not None:
-                print(f"들기 모드, {target_class}과 트럭이 동시에 감지됨 - 회피 동작")
                 turn_left(0.4)
                 time.sleep(0.4)
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
                     print("라인 검출, 목적지 도착")
                     break
-
-                payload = get_sensor_state(current_target_name, current_status, is_overloaded=False)
-                send_data(payload)
                 continue
 
             search_count = 0
@@ -308,35 +353,29 @@ def track_step(target_class: str, is_going_to_lift: bool):
 
         # ----------------------- CASE 2 : PLACE MODE -----------------------
         else:
-            current_status = "TRANSPORTING"
-            current_target_name = target_class
-
             if target_object is None or truck_object is None:
                 search_count += 1
                 if search_count > max_search_attempts:
                     print("목적지를 찾지 못함, 탐색 중단")
-                    send_data(get_sensor_state(target_class, "ERROR", is_overloaded=None))
                     return False
+                print(f"놓기 모드, 객체 탐지 실패 (target:{target_object is not None}, truck:{truck_object is not None})")
 
-                print(f"놓기 모드, 객체 탐지 실패")
                 turn_left(0.4)
                 time.sleep(0.4)
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
                     print("라인 검출, 목적지 도착")
                     break
-
-                payload = get_sensor_state(current_target_name, current_status, is_overloaded=None)
-                send_data(payload)
                 continue
 
             # 두 객체의 x좌표 차이 확인
             x_diff = abs(target_object[1] - truck_object[1])
+            print(f"X 좌표 차이: {x_diff}")
 
             if x_diff > 70:
                 search_count += 1
                 if search_count > max_search_attempts:
                     print("정렬 실패, 탐색 중단")
-                    send_data(get_sensor_state(target_class, "ERROR", is_overloaded=None))
+                    send_data(get_sensor_state(target_class, "ERROR", is_overloaded=None)) # 상태 전송
                     return False
 
                 print(f"놓기 모드, 정렬 필요 (차이: {x_diff})")
@@ -345,37 +384,32 @@ def track_step(target_class: str, is_going_to_lift: bool):
                 if line_values[0] == 1 or line_values[1] == 1 or line_values[2] == 1:
                     print("라인 검출, 목적지 도착")
                     break
-
-                payload = get_sensor_state(current_target_name, current_status, is_overloaded=None)
-                send_data(payload)
                 continue
             else:
                 search_count = 0
                 target_x = truck_object[1]
+                print(f"객체 정렬 완료: truck at {target_x}")
 
         # ----------------------- MOVEMENT CONTROL -----------------------
         center_x = FRAME_WIDTH_DEFAULT // 2
         error = target_x - center_x
-        scale = abs(error) / 320.0 * 0.45 + 0.05
+        scale = abs(error) / 320.0 * 0.4 # 이동 속도 스케일은 유지
 
-        current_status = "APPROACHING" if is_going_to_lift else "TRANSPORTING"
-
+        # 움직임 실행
         if abs(error) <= DEAD_ZONE:
-            # print("찾아가는중... 전진")
+            print("찾아가는중... 전진")
             move_forward(0.3)
             time.sleep(0.4)
         elif error < 0:
-            # print("찾아가는중... 우회전")
+            print("찾아가는중... 우회전")
             turn_right(scale)
+            # turn_right(0.2)
             time.sleep(0.4)
         else:
-            # print("찾아가는중... 좌회전")
+            print("찾아가는중... 좌회전")
             turn_left(scale)
+            # turn_left(0.2)
             time.sleep(0.4)
-
-        # 움직인 후 상태 전송
-        payload = get_sensor_state(current_target_name, current_status, is_overloaded=None)
-        send_data(payload)
 
         time.sleep(0.05)  # 안정화 대기
 
@@ -388,9 +422,9 @@ def track_step(target_class: str, is_going_to_lift: bool):
     # ----------------------- FINAL ACTION -----------------------
     stop()
 
-    # --- 상태 전송: 목적지 도착 ---
-    payload = get_sensor_state(target_class, "ARRIVED", is_overloaded=None)
-    send_data(payload)
+    # # --- 상태 전송: 목적지 도착 ---
+    # payload = get_sensor_state(target_class, "ARRIVED", is_overloaded=None)
+    # send_data(payload)
 
     if is_going_to_lift:
         print("물건 들기 시도")
@@ -401,7 +435,6 @@ def track_step(target_class: str, is_going_to_lift: bool):
         print("물건 놓기 시도")
         success_placing = attempt_place(target_class)
         return success_placing
-
 
 
 # =========================================================
@@ -420,16 +453,16 @@ def attempt_lift(target_class: str):
     send_data(payload)
 
     # 가운데 거리센서 값 읽어서 물체가 있는지 확인
+    # NOTE: distance 센서 값 읽는 로직은 유지하나, 페이로드로 전송하지 않음
     center_distance = get_distance_values()[1]  # 가운데 센서
 
-    # 물건이 바로 앞에 없는 경우 추가
-    ready_to_lift = False
+
     print(f"현재 내 앞 거리: {center_distance}")
     if center_distance > 10:  # 10cm 이내에 물체가 없으면
-        print("가운데 거리센서, 물체 있는지 확인중...")
         for i in range(20):
-            center_distance = get_distance_values()[1]
-            print(f"조금씩 전진 시도 #{i}, 거리: {center_distance}")
+            dist = get_distance_values()
+            center_distance = dist[1]
+            colision_detection = dist[2]
             if (center_distance <= 10):
                 print("물건 들기 준비 완료")
                 ready_to_lift = True
@@ -437,9 +470,6 @@ def attempt_lift(target_class: str):
             else:
                 move_forward(0.2)
                 time.sleep(0.3)
-                # 전진 중 상태 전송
-                payload = get_sensor_state(target_class, "LIFTING", is_overloaded=False)
-                send_data(payload)
         else:
             print("앞에 물체 없음, 들기 실패")
             ready_to_lift = False
@@ -452,7 +482,6 @@ def attempt_lift(target_class: str):
         # 특정 높이만큼 들기
         idx = 0
         for idx in range(40): # 최대 20번 반복 들기 시도
-            # print(f"lift_up #{idx}")
             lift_height = get_distance_values()[0]
             weight = read_weights()
             total_weight = weight[0] + weight[1]
@@ -460,15 +489,6 @@ def attempt_lift(target_class: str):
             is_overloaded = total_weight >= OVERLOAD_WARNING_THRESHOLD # 80% 기준 (44000)
 
             lift_motor_up(0.1, 0.5)  # 속도 0.5로 들기
-
-            # --- 상태 전송: LIFTING 중 ---
-            current_status = "LIFTING"
-            if is_overloaded:
-                current_status = "OVERLOAD"
-
-            payload = get_sensor_state(target_class, current_status, total_weight_g=total_weight, is_overloaded=is_overloaded)
-            send_data(payload)
-
 
             if lift_height >= 7:
                 print("물건 끝까지 들기 완료")
@@ -493,7 +513,6 @@ def attempt_lift(target_class: str):
 
                 break
             else:
-                # print("들기 종료 조건 미충족, 계속 시도")
                 continue
 
         if (not lifted_successful):
@@ -534,6 +553,7 @@ def attempt_place(target_class: str):
     payload = get_sensor_state(target_class, "UNLOADING", total_weight_g=total_weight, is_overloaded=is_overloaded)
     send_data(payload)
 
+
     lift_down_weight(target_class, is_overloaded=is_overloaded)
 
     move_backward(0.7)  # 1초 후진
@@ -551,21 +571,17 @@ def attempt_place(target_class: str):
 def lift_down_weight(target_class: str, is_overloaded: bool = False):
     placed_successful = False
 
-    current_status = "OVERLOAD_RECOVERY" if is_overloaded else "UNLOADING"
+    # current_status = "OVERLOAD_RECOVERY" if is_overloaded else "UNLOADING" # 상태값은 함수 진입 시점에 이미 전송됨
 
     # 최대 30번 반복 내리기 시도
     for i in range(30):
         lift_motor_down(0.1, 0.5)  # 속도 0.5로 내리기
-        # print("down...")
-        # 조금 내리고 로드셀 값 읽기
+        print("down...")
+
+        # NOTE: DTO에 맞게 distance, lightLevel 센서 값 읽는 로직 제거
         lift_height = get_distance_values()[0]
         weight = read_weights()
         total_weight = weight[0] + weight[1]
-        # print(total_weight)
-
-        # --- 상태 전송: UNLOADING 중 ---
-        payload = get_sensor_state(target_class, current_status, total_weight_g=total_weight, is_overloaded=is_overloaded)
-        send_data(payload)
 
         if total_weight <= 5000 or lift_height < 2.5:  # 총 무게가 기준치 이하면 내려놓기 완료
             print("내려놓기 끝")
@@ -597,8 +613,11 @@ if __name__ == "__main__":
     t = threading.Thread(target=read_frames, daemon=True)
     t.start()
 
+    # 조도 센서 모니터링 쓰레드 시작
+    light_thread = threading.Thread(target=light_sensor_monitor, daemon=True)
+    light_thread.start()
+
     # 여기서부터 모든 로직 구현을 하자!
-    # 시작: 목표 설정부터(사과 -> 바나나 -> 브로콜리) 순으로 처리할거임
     target_order = [47, 46, 50]  # apple, banana, broccoli
     current_target_idx = 0
 
@@ -606,10 +625,6 @@ if __name__ == "__main__":
     initial_payload = get_sensor_state("none", "STANDBY", is_overloaded=False)
     send_data(initial_payload)
 
-    # 객체 찾기
-    # TODO: 객체 찾는 함수 구현, 사과와 차 모양이 동시에 있으면 그 곳이 시작점
-
-    # 탐지 후 프레임 내에 찾는게 없으면 왼쪽으로 회전
     try:
         while not exit_flag:  # 무한 반복
             target_id = target_order[current_target_idx]
